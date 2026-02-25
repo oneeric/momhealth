@@ -1,0 +1,21 @@
+---
+description: 修改程式後自動重啟 dev server
+globs: 
+alwaysApply: true
+---
+
+# 開發伺服器重啟規則
+
+修改此 Next.js 專案程式碼後，應主動重啟開發伺服器以確保變更生效（避免 chunk 載入錯誤或快取問題）。
+
+**重啟流程：**
+1. 停止現有 `next dev` 程序
+2. 清除 `.next` 快取
+3. 重新執行 `npm run dev`
+
+**指令範例：**
+```bash
+pkill -f "next dev" 2>/dev/null; sleep 1; rm -rf .next && npm run dev
+```
+
+重啟後可於瀏覽器重新整理確認變更。

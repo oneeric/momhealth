@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 健康照護主題 - 基礎變數 */
+:root {
+  --color-primary: 20 184 166; /* teal-500 */
+  --color-primary-dark: 13 148 136; /* teal-600 */
+  --color-surface: 248 250 252; /* slate-50 */
+}
+
+/* 手機版底部安全區 */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* 觸控友善 */
+@media (hover: none) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
