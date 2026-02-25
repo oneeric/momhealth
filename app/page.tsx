@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import {
   getCurrentProgress,
@@ -9,7 +9,7 @@ import {
   migrateLegacyConfig,
   type TreatmentConfig,
 } from "@/lib/treatment";
-import { getTreatmentConfig, setTreatmentConfig } from "@/lib/storage";
+import { useSharedData } from "@/lib/use-shared-data";
 import { Calendar, Info, Plus, Pencil } from "lucide-react";
 
 const DEFAULT_CONFIG: TreatmentConfig = {
@@ -24,29 +24,24 @@ function formatDisplayDate(str: string): string {
 }
 
 export default function CalendarPage() {
-  const [config, setConfig] = useState<TreatmentConfig>(DEFAULT_CONFIG);
+  const { data, loading, saveTreatment } = useSharedData();
+  const config = data?.treatment
+    ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
+    : DEFAULT_CONFIG;
   const [showSetup, setShowSetup] = useState(false);
   const [editingCycleIndex, setEditingCycleIndex] = useState<number | null>(
     null
   );
   const [editingDateValue, setEditingDateValue] = useState("");
-  const [mounted, setMounted] = useState(false);
-
+  const mounted = !loading;
   useEffect(() => {
-    setMounted(true);
-    const saved = getTreatmentConfig();
-    if (saved) {
-      setConfig(migrateLegacyConfig(saved as Parameters<typeof migrateLegacyConfig>[0]));
-    } else {
-      setShowSetup(true);
-    }
-  }, []);
+    if (mounted && config.cycleDates.length === 0) setShowSetup(true);
+  }, [mounted, config.cycleDates.length]);
 
   const progress = mounted ? getCurrentProgress(config) : null;
 
   const handleSaveConfig = (newConfig: TreatmentConfig) => {
-    setConfig(newConfig);
-    setTreatmentConfig(newConfig);
+    saveTreatment(newConfig);
     setShowSetup(false);
   };
 
@@ -54,8 +49,7 @@ export default function CalendarPage() {
     const next = [...config.cycleDates];
     next[cycleIndex] = date;
     const newConfig = { ...config, cycleDates: next };
-    setConfig(newConfig);
-    setTreatmentConfig(newConfig);
+    saveTreatment(newConfig);
     setEditingCycleIndex(null);
     setEditingDateValue("");
   };

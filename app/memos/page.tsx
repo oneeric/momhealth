@@ -1,24 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import AppShell from "@/components/AppShell";
-import { getMemos, setMemos, type MemoCard } from "@/lib/storage";
+import { type MemoCard } from "@/lib/storage";
+import { useSharedData } from "@/lib/use-shared-data";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
 export default function MemosPage() {
-  const [memos, setMemosState] = useState<MemoCard[]>([]);
+  const { data, loading, saveMemos } = useSharedData();
+  const memos = data?.memos ?? [];
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
-  useEffect(() => {
-    setMemosState(getMemos());
-  }, []);
-
-  const saveMemos = (next: MemoCard[]) => {
-    setMemosState(next);
-    setMemos(next);
-  };
 
   const handleAdd = () => {
     setIsAdding(true);

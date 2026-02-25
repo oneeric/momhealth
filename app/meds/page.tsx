@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import {
   scheduleData,
@@ -8,9 +8,8 @@ import {
   pillGuide,
   type MedItem,
 } from "@/lib/medication-data";
-import { getTreatmentConfig } from "@/lib/storage";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
-import { getMedRecords, setMedRecords } from "@/lib/storage";
+import { useSharedData } from "@/lib/use-shared-data";
 import PillImage from "@/components/PillImage";
 import {
   Sun,
@@ -36,37 +35,32 @@ function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
 }
 
 export default function MedsPage() {
+  const { data, loading, saveMedRecords } = useSharedData();
   const [activeTab, setActiveTab] = useState<"schedule" | "prn" | "guide">(
     "schedule"
   );
-  const [checkedMeds, setCheckedMeds] = useState<Record<string, boolean>>({});
-  const [currentDay, setCurrentDay] = useState<number>(1);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const raw = getTreatmentConfig();
-    const config = raw ? migrateLegacyConfig(raw as Parameters<typeof migrateLegacyConfig>[0]) : null;
-    if (config) {
-      const progress = getCurrentProgress(config);
-      setCurrentDay(progress.day >= 1 && progress.day <= 14 ? progress.day : 1);
-    }
-    const today = new Date().toISOString().slice(0, 10);
-    setCheckedMeds(getMedRecords(today));
-  }, []);
-
   const today = new Date().toISOString().slice(0, 10);
+  const config = data?.treatment
+    ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
+    : null;
+  const currentDay =
+    config && data?.treatment
+      ? (() => {
+          const p = getCurrentProgress(config);
+          return p.day >= 1 && p.day <= 14 ? p.day : 1;
+        })()
+      : 1;
+  const checkedMeds = (data?.medRecords?.[today] ?? {});
+  const mounted = !loading;
 
   const toggleCheck = (id: string) => {
     const next = { ...checkedMeds, [id]: !checkedMeds[id] };
-    setCheckedMeds(next);
-    setMedRecords(today, next);
+    saveMedRecords(today, next);
   };
 
   const resetDaily = () => {
     if (window.confirm("確定要清除今天的吃藥紀錄嗎？")) {
-      setCheckedMeds({});
-      setMedRecords(today, {});
+      saveMedRecords(today, {});
     }
   };
 
