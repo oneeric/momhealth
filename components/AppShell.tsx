@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Heart, Pill, StickyNote } from "lucide-react";
+import { Calendar, Heart, Pill, StickyNote, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -21,14 +21,23 @@ export default function AppShell({
   return (
     <div className="min-h-screen flex flex-col pb-20">
       {/* Header */}
-      <header className="bg-primary-600 text-white p-4 shadow-md sticky top-0 z-10 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-          <Heart className="w-5 h-5" />
+      <header className="bg-primary-600 text-white p-4 shadow-md sticky top-0 z-10 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+            <Heart className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold">化療護理小幫手</h1>
+            <p className="text-primary-100 text-xs">SLOG 療程專用</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold">化療護理小幫手</h1>
-          <p className="text-primary-100 text-xs">SLOG 療程專用</p>
-        </div>
+        <Link
+          href="/settings"
+          className="p-2 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+          title="設定"
+        >
+          <Settings className="w-5 h-5" />
+        </Link>
       </header>
 
       {/* Main */}

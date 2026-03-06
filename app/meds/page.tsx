@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import {
   scheduleData,
@@ -35,10 +35,21 @@ function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
 }
 
 export default function MedsPage() {
-  const { data, loading, saveMedRecords } = useSharedData();
+  const { data, loading, saveMedRecords, refresh } = useSharedData();
   const [activeTab, setActiveTab] = useState<"schedule" | "prn" | "guide">(
     "schedule"
   );
+  const [showCheckedMsg, setShowCheckedMsg] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("checked") === "1") {
+      refresh();
+      setShowCheckedMsg(true);
+      window.history.replaceState({}, "", "/meds");
+      const t = setTimeout(() => setShowCheckedMsg(false), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [refresh]);
   const today = new Date().toISOString().slice(0, 10);
   const config = data?.treatment
     ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
@@ -79,6 +90,11 @@ export default function MedsPage() {
   return (
     <AppShell>
       <div className="space-y-4">
+        {showCheckedMsg && (
+          <div className="bg-green-50 text-green-800 px-4 py-2 rounded-xl text-sm font-medium">
+            ✓ 已記錄
+          </div>
+        )}
         {activeTab === "schedule" && (
           <>
             <div className="flex justify-between items-center">

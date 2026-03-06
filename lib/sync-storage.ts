@@ -15,6 +15,8 @@ export interface SharedData {
   treatment: TreatmentConfig | null;
   medRecords: Record<string, Record<string, boolean>>;
   memos: MemoCard[];
+  lineConnected?: boolean;
+  lineTargetCount?: number;
 }
 
 async function fetchFromApi(): Promise<SharedData | null> {
@@ -130,3 +132,4 @@ export async function saveSharedData(data: Partial<SharedData>): Promise<void> {
   }
   await saveToApi(data);
 }
+

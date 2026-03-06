@@ -12,12 +12,22 @@ export async function GET() {
     );
   }
   const data = await kvGetSharedData();
+  const raw = data ?? {
+    treatment: null,
+    medRecords: {},
+    memos: [],
+    lineUserIds: [],
+    lineGroupIds: [],
+  };
+  const userCount = raw.lineUserIds?.length ?? 0;
+  const groupCount = raw.lineGroupIds?.length ?? 0;
+  const { lineUserIds: _, lineGroupIds: __, ...safe } = raw;
   return NextResponse.json({
     ok: true,
-    data: data ?? {
-      treatment: null,
-      medRecords: {},
-      memos: [],
+    data: {
+      ...safe,
+      lineConnected: userCount + groupCount > 0,
+      lineTargetCount: userCount + groupCount,
     },
   });
 }
@@ -35,6 +45,8 @@ export async function POST(request: Request) {
       treatment: body.treatment,
       medRecords: body.medRecords,
       memos: body.memos,
+      lineUserIds: body.lineUserIds,
+      lineGroupIds: body.lineGroupIds,
     });
     if (!success) {
       return NextResponse.json({ ok: false }, { status: 500 });
