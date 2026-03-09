@@ -21,13 +21,13 @@ function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
 export function getMedsForPeriod(
   periodIndex: number,
   currentDay: number
-): { name: string; id: string }[] {
+): { name: string; id: string; baseId: string; dose: string }[] {
   const period = scheduleData[periodIndex];
   if (!period) return [];
-  const out: { name: string; id: string }[] = [];
+  const out: { name: string; id: string; baseId: string; dose: string }[] = [];
   period.slots.forEach((slot) => {
     filterMedsByDay(slot.meds, currentDay).forEach((m) => {
-      out.push({ name: m.name, id: m.id });
+      out.push({ name: m.name, id: m.id, baseId: m.baseId, dose: m.dose });
     });
   });
   return out;

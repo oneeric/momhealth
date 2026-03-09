@@ -28,6 +28,23 @@ function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function getPillPreviewUrl(baseId: string, baseUrl: string): string | null {
+  const fileByBaseId: Record<string, string> = {
+    allegra: "Allegra.png",
+    creon: "Creon.png",
+    emetrol: "EmetroL.png",
+    folina: "Folina.png",
+    loperam: "Loperam.png",
+    panzolec: "Panzolec.png",
+    ts1: "TS-1.jpg",
+    traceton: "Traceton.png",
+    xyzal: "XyzaL.png",
+  };
+  const file = fileByBaseId[baseId];
+  if (!file) return null;
+  return `${baseUrl}/pills/preview/${file}`;
+}
+
 function buildDayReminderMessage(msg: string): LinePushMessage {
   return {
     type: "flex",
@@ -69,23 +86,63 @@ function buildDayReminderMessage(msg: string): LinePushMessage {
 
 function buildMedsReminderMessage(
   periodLabel: string,
-  rows: { name: string; checkUrl: string }[]
+  rows: { name: string; dose: string; baseId: string; checkUrl: string }[],
+  baseUrl: string
 ): LinePushMessage {
   const medBlocks = rows.flatMap((row, idx) => {
+    const previewUrl = getPillPreviewUrl(row.baseId, baseUrl);
+    const titleRow: Record<string, unknown> = {
+      type: "box",
+      layout: "horizontal",
+      spacing: "sm",
+      contents: [
+        ...(previewUrl
+          ? [
+              {
+                type: "icon",
+                url: previewUrl,
+                size: "md",
+              },
+            ]
+          : [
+              {
+                type: "text",
+                text: "🥣",
+                size: "md",
+                flex: 0,
+              },
+            ]),
+        {
+          type: "box",
+          layout: "vertical",
+          spacing: "xs",
+          contents: [
+            {
+              type: "text",
+              text: row.name,
+              wrap: true,
+              size: "sm",
+              weight: "bold",
+              color: "#0f172a",
+            },
+            {
+              type: "text",
+              text: `劑量：${row.dose}`,
+              wrap: true,
+              size: "xs",
+              color: "#475569",
+            },
+          ],
+        },
+      ],
+    };
     const block: Record<string, unknown>[] = [
       {
         type: "box",
         layout: "vertical",
         spacing: "sm",
         contents: [
-          {
-            type: "text",
-            text: row.name,
-            wrap: true,
-            size: "sm",
-            weight: "bold",
-            color: "#0f172a",
-          },
+          titleRow,
           {
             type: "button",
             style: "primary",
@@ -123,6 +180,12 @@ function buildMedsReminderMessage(
             color: "#ffffff",
             weight: "bold",
             size: "md",
+          },
+          {
+            type: "text",
+            text: "點擊下方按鈕即可同步打勾",
+            color: "#ccfbf1",
+            size: "xs",
           },
         ],
       },
@@ -212,16 +275,30 @@ export async function GET(request: NextRequest) {
   }
 
   const today = formatDate(new Date());
-  const reminderRows: { name: string; checkUrl: string }[] = [];
+  const reminderRows: {
+    name: string;
+    dose: string;
+    baseId: string;
+    checkUrl: string;
+  }[] = [];
 
   for (const med of meds) {
     const checkToken = randomBytes(16).toString("hex");
     await kvSetCheckToken(checkToken, med.id, today);
     const checkUrl = `${baseUrl}/api/check?t=${checkToken}`;
-    reminderRows.push({ name: med.name, checkUrl });
+    reminderRows.push({
+      name: med.name,
+      dose: med.dose,
+      baseId: med.baseId,
+      checkUrl,
+    });
   }
 
-  const flexMessage = buildMedsReminderMessage(reminder.label, reminderRows);
+  const flexMessage = buildMedsReminderMessage(
+    reminder.label,
+    reminderRows,
+    baseUrl
+  );
   const results = await Promise.all(
     targets.map((t) => pushMessages(t, [flexMessage]))
   );
