@@ -62,7 +62,14 @@ function getPillPreviewUrl(baseId: string, baseUrl: string): string | null {
   return `${baseUrl}/pills/preview/${file}`;
 }
 
-function buildDayReminderMessage(msg: string): LinePushMessage {
+function getOpenAppUrl(baseUrl: string): string {
+  const liffId = process.env.LINE_LIFF_ID;
+  if (liffId) return `line://app/${liffId}`;
+  return `${baseUrl}/`;
+}
+
+function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage {
+  const openAppUrl = getOpenAppUrl(baseUrl);
   return {
     type: "flex",
     altText: "今日療程提醒",
@@ -97,6 +104,22 @@ function buildDayReminderMessage(msg: string): LinePushMessage {
           },
         ],
       },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#0f766e",
+            action: {
+              type: "uri",
+              label: "開啟 App",
+              uri: openAppUrl,
+            },
+          },
+        ],
+      },
     },
   };
 }
@@ -106,6 +129,7 @@ function buildMedsReminderMessage(
   rows: { name: string; dose: string; baseId: string; checkToken: string }[],
   baseUrl: string
 ): LinePushMessage {
+  const openAppUrl = getOpenAppUrl(baseUrl);
   const medBlocks = rows.flatMap((row, idx) => {
     const previewUrl = getPillPreviewUrl(row.baseId, baseUrl);
     const titleRow: Record<string, unknown> = {
@@ -213,6 +237,22 @@ function buildMedsReminderMessage(
         spacing: "md",
         contents: medBlocks,
       },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            style: "link",
+            action: {
+              type: "uri",
+              label: "開啟 App 看完整清單",
+              uri: openAppUrl,
+            },
+          },
+        ],
+      },
     },
   };
 }
@@ -290,7 +330,7 @@ export async function GET(request: NextRequest) {
       msg += `請在 App 設定療程打針日以開始追蹤`;
     }
 
-    const flexMessage = buildDayReminderMessage(msg);
+    const flexMessage = buildDayReminderMessage(msg, baseUrl);
     const results = await Promise.all(
       targets.map((t) => pushWithRetry(t, [flexMessage], 1))
     );
