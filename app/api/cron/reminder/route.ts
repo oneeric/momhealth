@@ -1,5 +1,6 @@
 /**
- * Vercel Cron - 每日 8 點階段提醒 + 用藥時間提醒
+ * 排程提醒 API（由 GitHub Actions 觸發）
+ * 每日 8 點階段提醒 + 用藥時間提醒
  * 台灣時間：8:00, 7:00, 12:00, 18:00, 21:00 (UTC: 0:00, 23:00, 4:00, 10:00, 13:00)
  */
 import { NextRequest, NextResponse } from "next/server";
