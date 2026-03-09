@@ -14,6 +14,19 @@ on:
     - cron: "0 10 * * *"
     - cron: "0 13 * * *"
   workflow_dispatch:
+    inputs:
+      slot:
+        description: "指定提醒時段（空白或 auto 代表依目前時間判斷）"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - day
+          - morning
+          - noon
+          - evening
+          - bedtime
 
 permissions:
   contents: read
@@ -26,6 +39,9 @@ jobs:
         env:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_SLOT: ${{ inputs.slot }}
         run: |
           if [ -z "$APP_BASE_URL" ]; then
             echo "APP_BASE_URL is not configured"
@@ -37,6 +53,28 @@ jobs:
             exit 1
           fi
 
+          SLOT=""
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            case "$EVENT_SCHEDULE" in
+              "0 23 * * *") SLOT="morning" ;;
+              "0 0 * * *") SLOT="day" ;;
+              "0 4 * * *") SLOT="noon" ;;
+              "0 10 * * *") SLOT="evening" ;;
+              "0 13 * * *") SLOT="bedtime" ;;
+            esac
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_SLOT" ] && [ "$INPUT_SLOT" != "auto" ]; then
+            SLOT="$INPUT_SLOT"
+          fi
+
+          URL="$APP_BASE_URL/api/cron/reminder"
+          if [ -n "$SLOT" ]; then
+            URL="$URL?slot=$SLOT"
+          fi
+
+          echo "Triggering slot: ${SLOT:-auto}"
+          echo "Request URL: $URL"
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$APP_BASE_URL/api/cron/reminder"
+            "$URL"

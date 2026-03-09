@@ -16,13 +16,37 @@ import {
   type LinePushMessage,
 } from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
-import {
-  REMINDER_TIMES,
-  getMedsForPeriod,
-} from "@/lib/medication-schedule";
+import { getMedsForPeriod } from "@/lib/medication-schedule";
 import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
+
+type ReminderSlot = "day" | "morning" | "noon" | "evening" | "bedtime";
+
+const MEDS_SLOT_CONFIG: Record<
+  Exclude<ReminderSlot, "day">,
+  { hour: number; periodIndex: number; label: string }
+> = {
+  morning: { hour: 7, periodIndex: 0, label: "早上" },
+  noon: { hour: 12, periodIndex: 1, label: "中午" },
+  evening: { hour: 18, periodIndex: 2, label: "晚上" },
+  bedtime: { hour: 21, periodIndex: 3, label: "睡前" },
+};
+
+function parseReminderSlot(raw: string | null): ReminderSlot | null {
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === "day" ||
+    normalized === "morning" ||
+    normalized === "noon" ||
+    normalized === "evening" ||
+    normalized === "bedtime"
+  ) {
+    return normalized;
+  }
+  return null;
+}
 
 function getTaiwanHour(): number {
   const now = new Date();
@@ -397,11 +421,26 @@ export async function GET(request: NextRequest) {
   }
 
   const twHour = getTaiwanHour();
+  const slotFromQuery = parseReminderSlot(request.nextUrl.searchParams.get("slot"));
+  const slotRaw = request.nextUrl.searchParams.get("slot");
+  if (slotRaw && !slotFromQuery) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_slot", allowed: ["day", "morning", "noon", "evening", "bedtime"] },
+      { status: 400 }
+    );
+  }
   const twDate = formatTaiwanDate(new Date());
   const baseUrl = request.nextUrl.origin;
+  const slotByHour: ReminderSlot | null =
+    twHour === 8
+      ? "day"
+      : (Object.entries(MEDS_SLOT_CONFIG).find(
+          ([, config]) => config.hour === twHour
+        )?.[0] as Exclude<ReminderSlot, "day"> | undefined) ?? null;
+  const selectedSlot = slotFromQuery ?? slotByHour;
 
   // 8am 每日階段提醒
-  if (twHour === 8) {
+  if (selectedSlot === "day") {
     const dedupeKey = `day:${twDate}`;
     if (await kvWasReminderSent(dedupeKey)) {
       return NextResponse.json({ ok: true, skipped: "already_sent_day" });
@@ -443,16 +482,22 @@ export async function GET(request: NextRequest) {
     if (failed < targets.length) {
       await kvMarkReminderSent(dedupeKey);
     }
-    return NextResponse.json({ ok: true, type: "day", failed, total: targets.length });
+    return NextResponse.json({
+      ok: true,
+      type: "day",
+      slot: "day",
+      failed,
+      total: targets.length,
+    });
   }
 
   // 用藥提醒 7, 12, 18, 21
-  const reminder = REMINDER_TIMES.find((r) => r.hour === twHour);
-  if (!reminder) {
-    return NextResponse.json({ ok: true, skipped: "no_match" });
+  if (!selectedSlot) {
+    return NextResponse.json({ ok: true, skipped: "no_match", twHour });
   }
+  const reminder = MEDS_SLOT_CONFIG[selectedSlot as Exclude<ReminderSlot, "day">];
 
-  const dedupeKey = `meds:${twDate}:${twHour}`;
+  const dedupeKey = `meds:${twDate}:${selectedSlot}`;
   if (await kvWasReminderSent(dedupeKey)) {
     return NextResponse.json({ ok: true, skipped: "already_sent_meds" });
   }
@@ -509,6 +554,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     type: "meds",
+    slot: selectedSlot,
     count: meds.length,
     failed,
     total: targets.length,
