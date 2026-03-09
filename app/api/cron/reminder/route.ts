@@ -5,7 +5,11 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { kvGetSharedData, kvSetCheckToken } from "@/lib/kv";
-import { isLineMessagingConfigured, pushTextMessage } from "@/lib/line-messaging";
+import {
+  isLineMessagingConfigured,
+  pushMessages,
+  type LinePushMessage,
+} from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
 import {
   REMINDER_TIMES,
@@ -22,6 +26,114 @@ function getTaiwanHour(): number {
 
 function formatDate(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function buildDayReminderMessage(msg: string): LinePushMessage {
+  return {
+    type: "flex",
+    altText: "今日療程提醒",
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#14b8a6",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "text",
+            text: "今日療程提醒",
+            color: "#ffffff",
+            weight: "bold",
+            size: "md",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "text",
+            text: msg,
+            wrap: true,
+            size: "sm",
+            color: "#0f172a",
+          },
+        ],
+      },
+    },
+  };
+}
+
+function buildMedsReminderMessage(
+  periodLabel: string,
+  rows: { name: string; checkUrl: string }[]
+): LinePushMessage {
+  const medBlocks = rows.flatMap((row, idx) => {
+    const block: Record<string, unknown>[] = [
+      {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "text",
+            text: row.name,
+            wrap: true,
+            size: "sm",
+            weight: "bold",
+            color: "#0f172a",
+          },
+          {
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#14b8a6",
+            action: {
+              type: "uri",
+              label: "打勾",
+              uri: row.checkUrl,
+            },
+          },
+        ],
+      },
+    ];
+    if (idx < rows.length - 1) {
+      block.push({ type: "separator", margin: "md" });
+    }
+    return block;
+  });
+
+  return {
+    type: "flex",
+    altText: `${periodLabel} 用藥提醒`,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#14b8a6",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "text",
+            text: `💊 ${periodLabel} 用藥提醒`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "md",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: medBlocks,
+      },
+    },
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -47,10 +159,7 @@ export async function GET(request: NextRequest) {
   }
 
   const twHour = getTaiwanHour();
-  const baseUrl =
-    process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_APP_URL ?? "https://momhealth.vercel.app";
+  const baseUrl = request.nextUrl.origin;
 
   // 8am 每日階段提醒
   if (twHour === 8) {
@@ -77,7 +186,10 @@ export async function GET(request: NextRequest) {
       msg += `請在 App 設定療程打針日以開始追蹤`;
     }
 
-    const results = await Promise.all(targets.map((t) => pushTextMessage(t, msg)));
+    const flexMessage = buildDayReminderMessage(msg);
+    const results = await Promise.all(
+      targets.map((t) => pushMessages(t, [flexMessage]))
+    );
     const failed = results.filter((r) => !r.ok).length;
     return NextResponse.json({ ok: true, type: "day", failed, total: targets.length });
   }
@@ -100,17 +212,19 @@ export async function GET(request: NextRequest) {
   }
 
   const today = formatDate(new Date());
-  const lines: string[] = [`💊 ${reminder.label} 用藥提醒\n`];
+  const reminderRows: { name: string; checkUrl: string }[] = [];
 
   for (const med of meds) {
     const checkToken = randomBytes(16).toString("hex");
     await kvSetCheckToken(checkToken, med.id, today);
     const checkUrl = `${baseUrl}/api/check?t=${checkToken}`;
-    lines.push(`• ${med.name}\n  打勾 👉 ${checkUrl}`);
+    reminderRows.push({ name: med.name, checkUrl });
   }
 
-  const msg = lines.join("\n\n");
-  const results = await Promise.all(targets.map((t) => pushTextMessage(t, msg)));
+  const flexMessage = buildMedsReminderMessage(reminder.label, reminderRows);
+  const results = await Promise.all(
+    targets.map((t) => pushMessages(t, [flexMessage]))
+  );
   const failed = results.filter((r) => !r.ok).length;
   if (failed === targets.length) {
     return NextResponse.json(

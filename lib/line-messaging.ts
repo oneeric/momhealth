@@ -22,9 +22,13 @@ export function verifyLineSignature(body: string, signature: string): boolean {
   return digest === signature;
 }
 
-export async function pushTextMessage(
+export type LinePushMessage =
+  | { type: "text"; text: string }
+  | { type: "flex"; altText: string; contents: Record<string, unknown> };
+
+export async function pushMessages(
   to: string,
-  text: string
+  messages: LinePushMessage[]
 ): Promise<{ ok: boolean; error?: string }> {
   const token = getLineAccessToken();
   if (!token) return { ok: false, error: "LINE_CHANNEL_ACCESS_TOKEN missing" };
@@ -36,10 +40,7 @@ export async function pushTextMessage(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        to,
-        messages: [{ type: "text", text }],
-      }),
+      body: JSON.stringify({ to, messages }),
     });
     if (!res.ok) {
       const detail = await res.text();
@@ -49,6 +50,13 @@ export async function pushTextMessage(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
+}
+
+export async function pushTextMessage(
+  to: string,
+  text: string
+): Promise<{ ok: boolean; error?: string }> {
+  return pushMessages(to, [{ type: "text", text }]);
 }
 
 export async function replyTextMessage(
