@@ -141,6 +141,9 @@ function buildTodayFlexMessage(
   const totalCount = todayMedIds.length;
   const completionRate =
     totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+  const scheduledMemos = getScheduledMemos(data)
+    .filter((m) => (m.scheduledDate ?? "") >= todayKey)
+    .slice(0, 3);
 
   return {
     type: "flex",
@@ -226,6 +229,35 @@ function buildTodayFlexMessage(
               },
             ],
           },
+          ...(scheduledMemos.length > 0
+            ? [
+                {
+                  type: "box",
+                  layout: "vertical",
+                  spacing: "xs",
+                  backgroundColor: "#f8fafc",
+                  cornerRadius: "8px",
+                  paddingAll: "10px",
+                  margin: "md",
+                  contents: [
+                    {
+                      type: "text",
+                      text: "近期預約",
+                      size: "xs",
+                      color: "#0f766e",
+                      weight: "bold",
+                    },
+                    ...scheduledMemos.map((memo) => ({
+                      type: "text",
+                      text: `• ${memo.scheduledDate} ${memo.title || "未命名"}`,
+                      size: "xs",
+                      color: "#334155",
+                      wrap: true,
+                    })),
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       footer: {
@@ -252,8 +284,18 @@ type MemoItem = {
   id?: string;
   title?: string;
   content?: string;
+  scheduledDate?: string;
   updatedAt?: string;
 };
+
+function getScheduledMemos(
+  data: Awaited<ReturnType<typeof kvGetSharedData>>
+): MemoItem[] {
+  const memos = (Array.isArray(data?.memos) ? data?.memos : []) as MemoItem[];
+  return memos
+    .filter((m) => !!m.scheduledDate)
+    .sort((a, b) => (a.scheduledDate ?? "").localeCompare(b.scheduledDate ?? ""));
+}
 
 function buildMemoCarouselMessage(
   data: Awaited<ReturnType<typeof kvGetSharedData>>,
@@ -329,6 +371,7 @@ function buildMemoCarouselMessage(
           hour12: false,
         })
       : "";
+    const scheduledDate = memo.scheduledDate ?? "";
 
     return {
       type: "bubble",
@@ -367,6 +410,17 @@ function buildMemoCarouselMessage(
             size: "xs",
             color: "#334155",
           },
+          ...(scheduledDate
+            ? [
+                {
+                  type: "text",
+                  text: `預約日：${scheduledDate}`,
+                  size: "xxs",
+                  color: "#0f766e",
+                  wrap: true,
+                },
+              ]
+            : []),
           ...(updatedAt
             ? [
                 {

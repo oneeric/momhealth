@@ -45,6 +45,35 @@ function formatTaiwanDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function shiftDate(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const ny = dt.getUTCFullYear();
+  const nm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const nd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${ny}-${nm}-${nd}`;
+}
+
+type MemoItem = {
+  id?: string;
+  title?: string;
+  content?: string;
+  scheduledDate?: string;
+  updatedAt?: string;
+};
+
+function getTomorrowMemos(
+  data: Awaited<ReturnType<typeof kvGetSharedData>>,
+  twDate: string
+): MemoItem[] {
+  const tomorrow = shiftDate(twDate, 1);
+  const memos = (Array.isArray(data?.memos) ? data?.memos : []) as MemoItem[];
+  return memos
+    .filter((m) => m.scheduledDate === tomorrow)
+    .sort((a, b) => (a.updatedAt ?? "").localeCompare(b.updatedAt ?? ""));
+}
+
 function getPillPreviewUrl(baseId: string, baseUrl: string): string | null {
   const fileByBaseId: Record<string, string> = {
     allegra: "Allegra.png",
@@ -66,6 +95,12 @@ function getOpenAppUrl(baseUrl: string): string {
   const liffId = process.env.LINE_LIFF_ID;
   if (liffId) return `line://app/${liffId}`;
   return `${baseUrl}/`;
+}
+
+function getOpenMemosUrl(baseUrl: string): string {
+  const liffId = process.env.LINE_LIFF_ID;
+  if (liffId) return `line://app/${liffId}?liff.state=%2Fmemos`;
+  return `${baseUrl}/memos`;
 }
 
 function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage {
@@ -116,6 +151,71 @@ function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage 
               type: "uri",
               label: "開啟 App",
               uri: openAppUrl,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function buildMemoPreReminderMessage(
+  rows: MemoItem[],
+  twDate: string,
+  baseUrl: string
+): LinePushMessage {
+  const tomorrow = shiftDate(twDate, 1);
+  const topRows = rows.slice(0, 5);
+  return {
+    type: "flex",
+    altText: `明日預約提醒（${topRows.length} 則）`,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#f59e0b",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "text",
+            text: "⏰ 前一日預約提醒",
+            color: "#ffffff",
+            weight: "bold",
+            size: "md",
+          },
+          {
+            type: "text",
+            text: `明天（${tomorrow}）有 ${rows.length} 則預約`,
+            color: "#fef3c7",
+            size: "xs",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: topRows.map((memo) => ({
+          type: "text",
+          text: `• ${memo.title || "未命名"}${memo.content ? `\n${memo.content}` : ""}`,
+          wrap: true,
+          size: "sm",
+          color: "#1f2937",
+        })),
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#d97706",
+            action: {
+              type: "uri",
+              label: "開啟備忘錄",
+              uri: getOpenMemosUrl(baseUrl),
             },
           },
         ],
@@ -331,8 +431,13 @@ export async function GET(request: NextRequest) {
     }
 
     const flexMessage = buildDayReminderMessage(msg, baseUrl);
+    const tomorrowMemos = getTomorrowMemos(data, twDate);
+    const messages: LinePushMessage[] =
+      tomorrowMemos.length > 0
+        ? [flexMessage, buildMemoPreReminderMessage(tomorrowMemos, twDate, baseUrl)]
+        : [flexMessage];
     const results = await Promise.all(
-      targets.map((t) => pushWithRetry(t, [flexMessage], 1))
+      targets.map((t) => pushWithRetry(t, messages, 1))
     );
     const failed = results.filter((r) => !r.ok).length;
     if (failed < targets.length) {

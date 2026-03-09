@@ -20,6 +20,8 @@ export interface MemoCard {
   id: string;
   title: string;
   content: string;
+  /** 預約日期（YYYY-MM-DD），選填 */
+  scheduledDate?: string;
   createdAt: string;
   updatedAt: string;
   order: number;

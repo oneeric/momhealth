@@ -13,17 +13,26 @@ export default function MemosPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  const [editScheduledDate, setEditScheduledDate] = useState("");
+
+  const formatDisplayDate = (date?: string) => {
+    if (!date) return "";
+    const [y, m, d] = date.split("-");
+    return `${y}/${m}/${d}`;
+  };
 
   const handleAdd = () => {
     setIsAdding(true);
     setEditTitle("");
     setEditContent("");
+    setEditScheduledDate("");
   };
 
   const handleEdit = (memo: MemoCard) => {
     setEditingId(memo.id);
     setEditTitle(memo.title);
     setEditContent(memo.content);
+    setEditScheduledDate(memo.scheduledDate ?? "");
   };
 
   const handleSave = () => {
@@ -35,6 +44,7 @@ export default function MemosPage() {
               ...m,
               title: editTitle || "未命名",
               content: editContent,
+              scheduledDate: editScheduledDate || undefined,
               updatedAt: now,
             }
           : m
@@ -46,6 +56,7 @@ export default function MemosPage() {
         id: crypto.randomUUID(),
         title: editTitle || "未命名",
         content: editContent,
+        scheduledDate: editScheduledDate || undefined,
         createdAt: now,
         updatedAt: now,
         order: memos.length,
@@ -55,6 +66,7 @@ export default function MemosPage() {
     }
     setEditTitle("");
     setEditContent("");
+    setEditScheduledDate("");
   };
 
   const handleDelete = (id: string) => {
@@ -69,6 +81,7 @@ export default function MemosPage() {
     setIsAdding(false);
     setEditTitle("");
     setEditContent("");
+    setEditScheduledDate("");
   };
 
   const showForm = isAdding || editingId;
@@ -88,7 +101,7 @@ export default function MemosPage() {
         </div>
 
         <p className="text-sm text-health-muted">
-          家族成員可共同新增、編輯備忘，方便照護協作。
+          家族成員可共同新增、編輯備忘，方便照護協作。若設定預約日期，系統會在前一日自動提醒。
         </p>
 
         {/* 編輯表單 */}
@@ -108,6 +121,17 @@ export default function MemosPage() {
               rows={3}
               className="w-full px-4 py-2 border border-health-border rounded-lg resize-none"
             />
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">
+                預約日期（選填）
+              </label>
+              <input
+                type="date"
+                value={editScheduledDate}
+                onChange={(e) => setEditScheduledDate(e.target.value)}
+                className="w-full px-4 py-2 border border-health-border rounded-lg"
+              />
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={handleSave}
@@ -139,6 +163,11 @@ export default function MemosPage() {
             >
               <div className="p-4">
                 <h3 className="font-bold text-slate-800">{memo.title}</h3>
+                {memo.scheduledDate && (
+                  <p className="text-xs text-primary-700 bg-primary-50 inline-block mt-1 px-2 py-1 rounded">
+                    預約日：{formatDisplayDate(memo.scheduledDate)}
+                  </p>
+                )}
                 <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">
                   {memo.content || "（無內容）"}
                 </p>
