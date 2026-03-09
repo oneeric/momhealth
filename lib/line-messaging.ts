@@ -26,6 +26,8 @@ export type LinePushMessage =
   | { type: "text"; text: string }
   | { type: "flex"; altText: string; contents: Record<string, unknown> };
 
+export type LineReplyMessage = LinePushMessage;
+
 export async function pushMessages(
   to: string,
   messages: LinePushMessage[]
@@ -63,6 +65,13 @@ export async function replyTextMessage(
   replyToken: string,
   text: string
 ): Promise<void> {
+  await replyMessages(replyToken, [{ type: "text", text }]);
+}
+
+export async function replyMessages(
+  replyToken: string,
+  messages: LineReplyMessage[]
+): Promise<void> {
   const token = getLineAccessToken();
   if (!token) return;
   await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -73,7 +82,7 @@ export async function replyTextMessage(
     },
     body: JSON.stringify({
       replyToken,
-      messages: [{ type: "text", text }],
+      messages,
     }),
   });
 }

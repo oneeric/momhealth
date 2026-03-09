@@ -11,8 +11,14 @@ import {
   kvGetSharedData,
   kvSetSharedData,
 } from "@/lib/kv";
-import { replyTextMessage, verifyLineSignature } from "@/lib/line-messaging";
+import {
+  replyMessages,
+  replyTextMessage,
+  type LinePushMessage,
+  verifyLineSignature,
+} from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
+import { scheduleData, type MedItem } from "@/lib/medication-data";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +46,7 @@ const STATUS_KEYWORDS = ["狀態", "綁定狀態", "/status"];
 const HELP_KEYWORDS = ["幫助", "help", "/help", "功能"];
 const OPEN_APP_KEYWORDS = ["開啟app", "打開app", "/app", "momhealth"];
 const TODAY_KEYWORDS = ["今日", "今天", "/today"];
+const MEMO_KEYWORDS = ["備忘錄", "備註", "/memos", "memo"];
 
 function normalizeText(text: string): string {
   return text.trim().toLowerCase();
@@ -56,29 +63,350 @@ function getOpenAppUrl(origin: string): string {
   return `${origin}/`;
 }
 
-function buildTodaySummary(data: Awaited<ReturnType<typeof kvGetSharedData>>): string {
+function getOpenMemosUrl(origin: string): string {
+  const liffId = process.env.LINE_LIFF_ID;
+  if (liffId) {
+    // Use LIFF deep link state to open the memos page in-app.
+    return `line://app/${liffId}?liff.state=%2Fmemos`;
+  }
+  return `${origin}/memos`;
+}
+
+function formatTaiwanDate(date: Date): string {
+  const y = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+  }).format(date);
+  const m = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    month: "2-digit",
+  }).format(date);
+  const d = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    day: "2-digit",
+  }).format(date);
+  return `${y}-${m}-${d}`;
+}
+
+function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
+  if (currentDay >= 1 && currentDay <= 7) return meds;
+  return meds.filter((m) => m.baseId === "tcm");
+}
+
+function getTodayMedIds(currentDay: number): string[] {
+  const ids: string[] = [];
+  scheduleData.forEach((period) => {
+    period.slots.forEach((slot) => {
+      filterMedsByDay(slot.meds, currentDay).forEach((m) => ids.push(m.id));
+    });
+  });
+  return ids;
+}
+
+function buildTodayFlexMessage(
+  data: Awaited<ReturnType<typeof kvGetSharedData>>,
+  origin: string
+): LinePushMessage {
   const config = data?.treatment
     ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
     : null;
   const progress = config ? getCurrentProgress(config) : null;
   const now = new Date();
+  const todayKey = formatTaiwanDate(now);
   const m = now.getMonth() + 1;
   const d = now.getDate();
-  let msg = `📅 今天 ${m}/${d}\n`;
+
+  let phase = "尚未設定療程";
+  let title = "請先到 App 設定打針日";
+  let content = "設定完成後，這裡會顯示今日療程狀態。";
 
   if (progress?.status === "in_cycle" && progress.todayInfo) {
-    msg += `第 ${progress.todayInfo.cycle} 次療程 · 第 ${progress.todayInfo.day} 天\n`;
-    msg += `階段：${progress.todayInfo.phaseLabel}\n`;
-    msg += `${progress.todayInfo.title}`;
-    return msg;
+    phase = `${progress.todayInfo.phaseLabel}（第 ${progress.todayInfo.cycle} 次 · Day ${progress.todayInfo.day}）`;
+    title = progress.todayInfo.title;
+    content = progress.todayInfo.content;
+  } else if (progress?.status === "waiting_next") {
+    phase = "等待下次回診";
+    title = "本次療程已完成";
+    content = "目前為等待下一次回診階段。";
+  } else if (progress?.status === "completed") {
+    phase = "療程完成";
+    title = "療程已全部完成";
+    content = "辛苦了，請持續追蹤日常照護。";
   }
-  if (progress?.status === "waiting_next") {
-    return `${msg}目前為等待下次回診階段。`;
+
+  const currentDay = progress?.day ?? 1;
+  const todayMedIds = getTodayMedIds(currentDay);
+  const todayRecords = data?.medRecords?.[todayKey] ?? {};
+  const checkedCount = todayMedIds.filter((id) => !!todayRecords[id]).length;
+  const totalCount = todayMedIds.length;
+  const completionRate =
+    totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+
+  return {
+    type: "flex",
+    altText: `今天 ${m}/${d} 療程提醒`,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#14b8a6",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "text",
+            text: `📅 今天 ${m}/${d}`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "md",
+          },
+          {
+            type: "text",
+            text: phase,
+            color: "#ccfbf1",
+            size: "xs",
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "text",
+            text: title,
+            weight: "bold",
+            size: "sm",
+            color: "#0f172a",
+            wrap: true,
+          },
+          {
+            type: "text",
+            text: content,
+            size: "sm",
+            color: "#334155",
+            wrap: true,
+          },
+          {
+            type: "box",
+            layout: "vertical",
+            spacing: "xs",
+            backgroundColor: "#f0fdfa",
+            cornerRadius: "8px",
+            paddingAll: "10px",
+            margin: "md",
+            contents: [
+              {
+                type: "text",
+                text: "今日完成率",
+                size: "xs",
+                color: "#0f766e",
+                weight: "bold",
+              },
+              {
+                type: "text",
+                text: `${completionRate}% (${checkedCount}/${totalCount})`,
+                size: "sm",
+                color: "#0f172a",
+                weight: "bold",
+              },
+              {
+                type: "text",
+                text:
+                  totalCount > 0
+                    ? checkedCount >= totalCount
+                      ? "今日用藥已全部完成"
+                      : `尚有 ${totalCount - checkedCount} 項待完成`
+                    : "今日無需服藥項目",
+                size: "xs",
+                color: "#475569",
+                wrap: true,
+              },
+            ],
+          },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#0f766e",
+            action: {
+              type: "uri",
+              label: "開啟 App",
+              uri: getOpenAppUrl(origin),
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+type MemoItem = {
+  id?: string;
+  title?: string;
+  content?: string;
+  updatedAt?: string;
+};
+
+function buildMemoCarouselMessage(
+  data: Awaited<ReturnType<typeof kvGetSharedData>>,
+  origin: string
+): LinePushMessage {
+  const memos = (Array.isArray(data?.memos) ? data?.memos : []) as MemoItem[];
+  const sorted = [...memos].sort((a, b) =>
+    (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
+  );
+  const items = sorted.slice(0, 10);
+  const openUrl = getOpenMemosUrl(origin);
+
+  if (items.length === 0) {
+    return {
+      type: "flex",
+      altText: "目前沒有備忘錄",
+      contents: {
+        type: "bubble",
+        header: {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#14b8a6",
+          paddingAll: "12px",
+          contents: [
+            {
+              type: "text",
+              text: "🗒 備忘錄",
+              color: "#ffffff",
+              weight: "bold",
+              size: "md",
+            },
+          ],
+        },
+        body: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            {
+              type: "text",
+              text: "目前沒有備忘錄內容。",
+              wrap: true,
+              size: "sm",
+              color: "#334155",
+            },
+          ],
+        },
+        footer: {
+          type: "box",
+          layout: "vertical",
+          contents: [
+            {
+              type: "button",
+              style: "primary",
+              color: "#0f766e",
+              action: {
+                type: "uri",
+                label: "開啟備忘錄",
+                uri: openUrl,
+              },
+            },
+          ],
+        },
+      },
+    };
   }
-  if (progress?.status === "completed") {
-    return `${msg}療程已全部完成。`;
-  }
-  return `${msg}尚未設定療程，請先到 App 設定打針日。`;
+
+  const bubbles = items.map((memo, idx) => {
+    const title = memo.title?.trim() || "未命名";
+    const content = memo.content?.trim() || "（無內容）";
+    const preview = content.length > 140 ? `${content.slice(0, 140)}...` : content;
+    const updatedAt = memo.updatedAt
+      ? new Date(memo.updatedAt).toLocaleString("zh-TW", {
+          hour12: false,
+        })
+      : "";
+
+    return {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#14b8a6",
+        paddingAll: "10px",
+        contents: [
+          {
+            type: "text",
+            text: `🗒 備忘 ${idx + 1}`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "sm",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "text",
+            text: title,
+            wrap: true,
+            weight: "bold",
+            size: "sm",
+            color: "#0f172a",
+          },
+          {
+            type: "text",
+            text: preview,
+            wrap: true,
+            size: "xs",
+            color: "#334155",
+          },
+          ...(updatedAt
+            ? [
+                {
+                  type: "text",
+                  text: `更新：${updatedAt}`,
+                  size: "xxs",
+                  color: "#64748b",
+                  wrap: true,
+                },
+              ]
+            : []),
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#0f766e",
+            action: {
+              type: "uri",
+              label: "開啟備忘錄",
+              uri: openUrl,
+            },
+          },
+        ],
+      },
+    };
+  });
+
+  return {
+    type: "flex",
+    altText: `備忘錄（${items.length} 則）`,
+    contents: {
+      type: "carousel",
+      contents: bubbles,
+    },
+  };
 }
 
 async function markMedicationCheckedByToken(token: string): Promise<boolean> {
@@ -197,7 +525,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (isInKeywords(text, TODAY_KEYWORDS)) {
-      await replyTextMessage(event.replyToken, buildTodaySummary(data));
+      const todayFlex = buildTodayFlexMessage(data, origin);
+      await replyMessages(event.replyToken, [todayFlex]);
+      continue;
+    }
+
+    if (isInKeywords(text, MEMO_KEYWORDS)) {
+      const memoFlex = buildMemoCarouselMessage(data, origin);
+      await replyMessages(event.replyToken, [memoFlex]);
       continue;
     }
 
@@ -212,7 +547,7 @@ export async function POST(request: NextRequest) {
     if (isInKeywords(text, HELP_KEYWORDS)) {
       await replyTextMessage(
         event.replyToken,
-        "可用指令：\n- 綁定\n- 解除綁定\n- 狀態\n- 今日\n- 開啟App"
+        "可用指令：\n- 綁定\n- 解除綁定\n- 狀態\n- 今日\n- 備忘錄\n- 開啟App"
       );
       continue;
     }
