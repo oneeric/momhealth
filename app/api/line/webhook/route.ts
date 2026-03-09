@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   kvGetAndDeleteCheckToken,
   kvGetSharedData,
+  kvSetCheckToken,
   kvSetSharedData,
 } from "@/lib/kv";
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
 import { scheduleData, type MedItem } from "@/lib/medication-data";
+import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,7 @@ const HELP_KEYWORDS = ["幫助", "help", "/help", "功能"];
 const OPEN_APP_KEYWORDS = ["開啟app", "打開app", "/app", "momhealth"];
 const TODAY_KEYWORDS = ["今日", "今天", "/today"];
 const MEMO_KEYWORDS = ["備忘錄", "備註", "/memos", "memo"];
+const TEST_MEDS_KEYWORDS = ["測試用藥", "用藥測試", "/testmeds"];
 
 function normalizeText(text: string): string {
   return text.trim().toLowerCase();
@@ -88,6 +91,11 @@ function formatTaiwanDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function getTaiwanHour(): number {
+  const now = new Date();
+  return (now.getUTCHours() + 8) % 24;
+}
+
 function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
   if (currentDay >= 1 && currentDay <= 7) return meds;
   return meds.filter((m) => m.baseId === "tcm");
@@ -101,6 +109,37 @@ function getTodayMedIds(currentDay: number): string[] {
     });
   });
   return ids;
+}
+
+type MedTestRow = {
+  id: string;
+  name: string;
+  dose: string;
+  checkToken: string;
+};
+
+function selectTestPeriodLabel(text: string): { periodIndex: number; label: string } {
+  const normalized = normalizeText(text);
+  if (normalized.includes("早")) return { periodIndex: 0, label: "早上" };
+  if (normalized.includes("中")) return { periodIndex: 1, label: "中午" };
+  if (normalized.includes("晚")) return { periodIndex: 2, label: "晚上" };
+  if (normalized.includes("睡")) return { periodIndex: 3, label: "睡前" };
+
+  const hour = getTaiwanHour();
+  if (hour < 10) return { periodIndex: 0, label: "早上" };
+  if (hour < 15) return { periodIndex: 1, label: "中午" };
+  if (hour < 20) return { periodIndex: 2, label: "晚上" };
+  return { periodIndex: 3, label: "睡前" };
+}
+
+function getMedsForPeriod(periodIndex: number, currentDay: number): MedItem[] {
+  const period = scheduleData[periodIndex];
+  if (!period) return [];
+  const out: MedItem[] = [];
+  period.slots.forEach((slot) => {
+    filterMedsByDay(slot.meds, currentDay).forEach((m) => out.push(m));
+  });
+  return out;
 }
 
 function buildTodayFlexMessage(
@@ -463,6 +502,102 @@ function buildMemoCarouselMessage(
   };
 }
 
+function buildMedsTestFlexMessage(
+  periodLabel: string,
+  rows: MedTestRow[],
+  origin: string
+): LinePushMessage {
+  const contents = rows.flatMap((row, idx) => {
+    const block: Record<string, unknown>[] = [
+      {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "text",
+            text: row.name,
+            wrap: true,
+            size: "sm",
+            weight: "bold",
+            color: "#0f172a",
+          },
+          {
+            type: "text",
+            text: `劑量：${row.dose}`,
+            size: "xs",
+            color: "#475569",
+          },
+          {
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#14b8a6",
+            action: {
+              type: "postback",
+              label: "已服用",
+              data: `check:${row.checkToken}`,
+              displayText: `已標記 ${row.name} 服用`,
+            },
+          },
+        ],
+      },
+    ];
+    if (idx < rows.length - 1) block.push({ type: "separator", margin: "md" });
+    return block;
+  });
+
+  return {
+    type: "flex",
+    altText: `測試：${periodLabel} 用藥提醒`,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#0f766e",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "text",
+            text: `🧪 測試：${periodLabel} 用藥提醒`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "md",
+          },
+          {
+            type: "text",
+            text: "此訊息為手動測試，不影響定時排程。",
+            color: "#ccfbf1",
+            size: "xs",
+          },
+        ],
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents,
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          {
+            type: "button",
+            style: "link",
+            action: {
+              type: "uri",
+              label: "開啟 App 看完整清單",
+              uri: getOpenAppUrl(origin),
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
 async function markMedicationCheckedByToken(token: string): Promise<boolean> {
   const payload = await kvGetAndDeleteCheckToken(token);
   if (!payload) return false;
@@ -590,6 +725,41 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    if (
+      isInKeywords(text, TEST_MEDS_KEYWORDS) ||
+      normalizeText(text).startsWith("測試用藥")
+    ) {
+      const config = data?.treatment
+        ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
+        : null;
+      const progress = config ? getCurrentProgress(config) : null;
+      const currentDay = progress?.day ?? 1;
+      const selected = selectTestPeriodLabel(text);
+      const meds = getMedsForPeriod(selected.periodIndex, currentDay);
+      if (meds.length === 0) {
+        await replyTextMessage(
+          event.replyToken,
+          `測試完成：目前 ${selected.label} 時段沒有用藥項目。`
+        );
+        continue;
+      }
+      const today = formatTaiwanDate(new Date());
+      const rows: MedTestRow[] = [];
+      for (const med of meds) {
+        const token = randomBytes(16).toString("hex");
+        await kvSetCheckToken(token, med.id, today);
+        rows.push({
+          id: med.id,
+          name: med.name,
+          dose: med.dose,
+          checkToken: token,
+        });
+      }
+      const flex = buildMedsTestFlexMessage(selected.label, rows, origin);
+      await replyMessages(event.replyToken, [flex]);
+      continue;
+    }
+
     if (isInKeywords(text, OPEN_APP_KEYWORDS)) {
       await replyTextMessage(
         event.replyToken,
@@ -601,7 +771,7 @@ export async function POST(request: NextRequest) {
     if (isInKeywords(text, HELP_KEYWORDS)) {
       await replyTextMessage(
         event.replyToken,
-        "可用指令：\n- 綁定\n- 解除綁定\n- 狀態\n- 今日\n- 備忘錄\n- 開啟App"
+        "可用指令：\n- 綁定\n- 解除綁定\n- 狀態\n- 今日\n- 備忘錄\n- 測試用藥（可加：早上/中午/晚上/睡前）\n- 開啟App"
       );
       continue;
     }
