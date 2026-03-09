@@ -72,6 +72,7 @@ export async function kvSetSharedData(data: Partial<SharedData>): Promise<boolea
 }
 
 const CHECK_PREFIX = "momhealth:check:";
+const REMINDER_SENT_PREFIX = "momhealth:reminder:sent:";
 
 export async function kvSetCheckToken(
   token: string,
@@ -99,4 +100,22 @@ export async function kvGetAndDeleteCheckToken(
   } catch {
     return null;
   }
+}
+
+export async function kvWasReminderSent(reminderKey: string): Promise<boolean> {
+  const client = getRedis();
+  if (!client) return false;
+  const key = `${REMINDER_SENT_PREFIX}${reminderKey}`;
+  const raw = await client.get(key);
+  return !!raw;
+}
+
+export async function kvMarkReminderSent(
+  reminderKey: string,
+  ttlSeconds = 60 * 60 * 48
+): Promise<void> {
+  const client = getRedis();
+  if (!client) return;
+  const key = `${REMINDER_SENT_PREFIX}${reminderKey}`;
+  await client.set(key, "1", { ex: ttlSeconds });
 }

@@ -4,7 +4,12 @@
  * 台灣時間：8:00, 7:00, 12:00, 18:00, 21:00 (UTC: 0:00, 23:00, 4:00, 10:00, 13:00)
  */
 import { NextRequest, NextResponse } from "next/server";
-import { kvGetSharedData, kvSetCheckToken } from "@/lib/kv";
+import {
+  kvGetSharedData,
+  kvMarkReminderSent,
+  kvSetCheckToken,
+  kvWasReminderSent,
+} from "@/lib/kv";
 import {
   isLineMessagingConfigured,
   pushMessages,
@@ -24,8 +29,20 @@ function getTaiwanHour(): number {
   return (now.getUTCHours() + 8) % 24;
 }
 
-function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+function formatTaiwanDate(date: Date): string {
+  const y = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+  }).format(date);
+  const m = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    month: "2-digit",
+  }).format(date);
+  const d = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    day: "2-digit",
+  }).format(date);
+  return `${y}-${m}-${d}`;
 }
 
 function getPillPreviewUrl(baseId: string, baseUrl: string): string | null {
@@ -86,7 +103,7 @@ function buildDayReminderMessage(msg: string): LinePushMessage {
 
 function buildMedsReminderMessage(
   periodLabel: string,
-  rows: { name: string; dose: string; baseId: string; checkUrl: string }[],
+  rows: { name: string; dose: string; baseId: string; checkToken: string }[],
   baseUrl: string
 ): LinePushMessage {
   const medBlocks = rows.flatMap((row, idx) => {
@@ -149,9 +166,10 @@ function buildMedsReminderMessage(
             height: "sm",
             color: "#14b8a6",
             action: {
-              type: "uri",
-              label: "打勾",
-              uri: row.checkUrl,
+              type: "postback",
+              label: "已服用",
+              data: `check:${row.checkToken}`,
+              displayText: `已標記 ${row.name} 服用`,
             },
           },
         ],
@@ -199,6 +217,23 @@ function buildMedsReminderMessage(
   };
 }
 
+async function pushWithRetry(
+  target: string,
+  messages: LinePushMessage[],
+  retryCount = 1
+): Promise<{ ok: boolean; error?: string }> {
+  for (let i = 0; i <= retryCount; i++) {
+    const result = await pushMessages(target, messages);
+    if (result.ok) return result;
+    if (i < retryCount) {
+      await new Promise((r) => setTimeout(r, 700));
+    } else {
+      return result;
+    }
+  }
+  return { ok: false, error: "push_failed" };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
@@ -222,18 +257,24 @@ export async function GET(request: NextRequest) {
   }
 
   const twHour = getTaiwanHour();
+  const twDate = formatTaiwanDate(new Date());
   const baseUrl = request.nextUrl.origin;
 
   // 8am 每日階段提醒
   if (twHour === 8) {
+    const dedupeKey = `day:${twDate}`;
+    if (await kvWasReminderSent(dedupeKey)) {
+      return NextResponse.json({ ok: true, skipped: "already_sent_day" });
+    }
+
     const config = data?.treatment
       ? migrateLegacyConfig(data.treatment as Parameters<typeof migrateLegacyConfig>[0])
       : null;
     const progress = config ? getCurrentProgress(config) : null;
 
-    const now = new Date();
-    const m = now.getMonth() + 1;
-    const d = now.getDate();
+    const twDateParts = twDate.split("-");
+    const m = twDateParts[1];
+    const d = twDateParts[2];
     let msg = `📅 今天是 ${m} 月 ${d} 日\n\n`;
 
     if (progress?.status === "in_cycle" && progress.todayInfo) {
@@ -251,9 +292,12 @@ export async function GET(request: NextRequest) {
 
     const flexMessage = buildDayReminderMessage(msg);
     const results = await Promise.all(
-      targets.map((t) => pushMessages(t, [flexMessage]))
+      targets.map((t) => pushWithRetry(t, [flexMessage], 1))
     );
     const failed = results.filter((r) => !r.ok).length;
+    if (failed < targets.length) {
+      await kvMarkReminderSent(dedupeKey);
+    }
     return NextResponse.json({ ok: true, type: "day", failed, total: targets.length });
   }
 
@@ -261,6 +305,11 @@ export async function GET(request: NextRequest) {
   const reminder = REMINDER_TIMES.find((r) => r.hour === twHour);
   if (!reminder) {
     return NextResponse.json({ ok: true, skipped: "no_match" });
+  }
+
+  const dedupeKey = `meds:${twDate}:${twHour}`;
+  if (await kvWasReminderSent(dedupeKey)) {
+    return NextResponse.json({ ok: true, skipped: "already_sent_meds" });
   }
 
   const config = data?.treatment
@@ -274,23 +323,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "no_meds" });
   }
 
-  const today = formatDate(new Date());
+  const today = twDate;
   const reminderRows: {
     name: string;
     dose: string;
     baseId: string;
-    checkUrl: string;
+    checkToken: string;
   }[] = [];
 
   for (const med of meds) {
     const checkToken = randomBytes(16).toString("hex");
     await kvSetCheckToken(checkToken, med.id, today);
-    const checkUrl = `${baseUrl}/api/check?t=${checkToken}`;
     reminderRows.push({
       name: med.name,
       dose: med.dose,
       baseId: med.baseId,
-      checkUrl,
+      checkToken,
     });
   }
 
@@ -300,9 +348,12 @@ export async function GET(request: NextRequest) {
     baseUrl
   );
   const results = await Promise.all(
-    targets.map((t) => pushMessages(t, [flexMessage]))
+    targets.map((t) => pushWithRetry(t, [flexMessage], 1))
   );
   const failed = results.filter((r) => !r.ok).length;
+  if (failed < targets.length) {
+    await kvMarkReminderSent(dedupeKey);
+  }
   if (failed === targets.length) {
     return NextResponse.json(
       { ok: false, error: results.find((r) => !r.ok)?.error ?? "push_failed" },

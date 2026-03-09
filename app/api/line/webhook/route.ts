@@ -5,13 +5,20 @@
  * - 回覆綁定成功訊息
  */
 import { NextRequest, NextResponse } from "next/server";
-import { kvGetSharedData, kvSetSharedData } from "@/lib/kv";
+import {
+  kvGetAndDeleteCheckToken,
+  kvGetSharedData,
+  kvSetSharedData,
+} from "@/lib/kv";
 import { replyTextMessage, verifyLineSignature } from "@/lib/line-messaging";
 
 export const dynamic = "force-dynamic";
 
 type LineEvent = {
   type: string;
+  postback?: {
+    data?: string;
+  };
   source?: {
     type?: "user" | "group" | "room";
     userId?: string;
@@ -20,6 +27,22 @@ type LineEvent = {
   };
   replyToken?: string;
 };
+
+async function markMedicationCheckedByToken(token: string): Promise<boolean> {
+  const payload = await kvGetAndDeleteCheckToken(token);
+  if (!payload) return false;
+  const data = await kvGetSharedData();
+  const medRecords = data?.medRecords ?? {};
+  const dateRecords = medRecords[payload.date] ?? {};
+  const updated = { ...dateRecords, [payload.medId]: true };
+  await kvSetSharedData({
+    medRecords: {
+      ...medRecords,
+      [payload.date]: updated,
+    },
+  });
+  return true;
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -48,6 +71,18 @@ export async function POST(request: NextRequest) {
     if (source?.type === "group" && source.groupId) {
       groupIds.add(source.groupId);
     }
+    if (event.type === "postback" && event.postback?.data?.startsWith("check:")) {
+      const token = event.postback.data.replace("check:", "");
+      const ok = await markMedicationCheckedByToken(token);
+      if (event.replyToken) {
+        await replyTextMessage(
+          event.replyToken,
+          ok ? "已記錄這筆服藥，App 也同步更新了。" : "這筆打勾連結已失效或已處理。"
+        );
+      }
+      continue;
+    }
+
     if (event.replyToken) {
       await replyTextMessage(
         event.replyToken,
