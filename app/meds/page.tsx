@@ -29,9 +29,8 @@ const PERIOD_ICONS = [Sun, CloudSun, Moon, MoonStar];
 
 function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
   if (currentDay >= 1 && currentDay <= 7) return meds;
-  return meds.filter(
-    (m) => !m.applicableDays || m.applicableDays.length === 0
-  );
+  // 休養/恢復期（Day 8-14）只顯示中藥
+  return meds.filter((m) => m.baseId === "tcm");
 }
 
 export default function MedsPage() {
@@ -132,7 +131,7 @@ export default function MedsPage() {
               <div className="bg-amber-50 border-l-4 border-amber-500 p-3 rounded-r-xl flex items-start gap-2">
                 <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-amber-800">
-                  本週為休養期，TS-1、Folina 已停藥，僅顯示其他常規用藥。
+                  本週為休養/恢復期，僅顯示中藥提醒。
                 </p>
               </div>
             )}

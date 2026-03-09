@@ -14,9 +14,8 @@ export const REMINDER_TIMES = [
 
 function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
   if (currentDay >= 1 && currentDay <= 7) return meds;
-  return meds.filter(
-    (m) => !m.applicableDays || m.applicableDays.length === 0
-  );
+  // 休養/恢復期（Day 8-14）只提醒中藥
+  return meds.filter((m) => m.baseId === "tcm");
 }
 
 export function getMedsForPeriod(
