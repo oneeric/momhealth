@@ -53,6 +53,25 @@ function getTaiwanHour(): number {
   return (now.getUTCHours() + 8) % 24;
 }
 
+function getTaiwanMinute(): number {
+  return new Date().getUTCMinutes();
+}
+
+function parseHourMinute(raw: string | null): { hour: number; minute: number } | null {
+  if (!raw) return null;
+  const match = raw.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return { hour: Number(match[1]), minute: Number(match[2]) };
+}
+
+function isBeforeTaiwanTime(target: { hour: number; minute: number }): boolean {
+  const currentHour = getTaiwanHour();
+  const currentMinute = getTaiwanMinute();
+  if (currentHour < target.hour) return true;
+  if (currentHour > target.hour) return false;
+  return currentMinute < target.minute;
+}
+
 function formatTaiwanDate(date: Date): string {
   const y = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
@@ -422,10 +441,18 @@ export async function GET(request: NextRequest) {
 
   const twHour = getTaiwanHour();
   const slotFromQuery = parseReminderSlot(request.nextUrl.searchParams.get("slot"));
+  const notBeforeRaw = request.nextUrl.searchParams.get("notBefore");
+  const notBefore = parseHourMinute(notBeforeRaw);
   const slotRaw = request.nextUrl.searchParams.get("slot");
   if (slotRaw && !slotFromQuery) {
     return NextResponse.json(
       { ok: false, error: "invalid_slot", allowed: ["day", "morning", "noon", "evening", "bedtime"] },
+      { status: 400 }
+    );
+  }
+  if (notBeforeRaw && !notBefore) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_not_before", expected: "HH:MM" },
       { status: 400 }
     );
   }
@@ -494,6 +521,16 @@ export async function GET(request: NextRequest) {
   // 用藥提醒 7, 12, 18, 21
   if (!selectedSlot) {
     return NextResponse.json({ ok: true, skipped: "no_match", twHour });
+  }
+
+  if (notBefore && isBeforeTaiwanTime(notBefore)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: "too_early",
+      slot: selectedSlot,
+      notBefore: notBeforeRaw,
+      nowTaiwan: `${String(twHour).padStart(2, "0")}:${String(getTaiwanMinute()).padStart(2, "0")}`,
+    });
   }
   const reminder = MEDS_SLOT_CONFIG[selectedSlot as Exclude<ReminderSlot, "day">];
 

@@ -2,24 +2,25 @@ name: Medication Reminder Scheduler
 
 on:
   # Times are UTC; Taiwan is UTC+8.
-  # Medication reminders:
-  # - Primary: original schedule time
-  # - Fallback: 10 minutes later
-  # TW 07:00 => UTC 23:00 (previous day), fallback TW 07:10 => UTC 23:10 (previous day)
+  # Medication reminders (retry mode):
+  # - Retry every minute from 10 minutes before target time
+  # - API will block early sends before target HH:MM
+  # - Once sent, dedupe prevents duplicates
+  # TW 07:00 window => UTC 22:50-22:59 and 23:00-23:10 (previous day)
   # TW 08:00 => UTC 00:00
-  # TW 12:00 => UTC 04:00, fallback TW 12:10 => UTC 04:10
-  # TW 18:00 => UTC 10:00, fallback TW 18:10 => UTC 10:10
-  # TW 21:00 => UTC 13:00, fallback TW 21:10 => UTC 13:10
+  # TW 12:00 window => UTC 03:50-03:59 and 04:00-04:10
+  # TW 18:00 window => UTC 09:50-09:59 and 10:00-10:10
+  # TW 21:00 window => UTC 12:50-12:59 and 13:00-13:10
   schedule:
-    - cron: "0 23 * * *"
-    - cron: "10 23 * * *"
+    - cron: "50-59 22 * * *"
+    - cron: "0-10 23 * * *"
     - cron: "0 0 * * *"
-    - cron: "0 4 * * *"
-    - cron: "10 4 * * *"
-    - cron: "0 10 * * *"
-    - cron: "10 10 * * *"
-    - cron: "0 13 * * *"
-    - cron: "10 13 * * *"
+    - cron: "50-59 3 * * *"
+    - cron: "0-10 4 * * *"
+    - cron: "50-59 9 * * *"
+    - cron: "0-10 10 * * *"
+    - cron: "50-59 12 * * *"
+    - cron: "0-10 13 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -61,13 +62,26 @@ jobs:
           fi
 
           SLOT=""
+          NOT_BEFORE=""
           if [ "$EVENT_NAME" = "schedule" ]; then
             case "$EVENT_SCHEDULE" in
-              "0 23 * * *"|"10 23 * * *") SLOT="morning" ;;
+              "50-59 22 * * *"|"0-10 23 * * *")
+                SLOT="morning"
+                NOT_BEFORE="07:00"
+                ;;
               "0 0 * * *") SLOT="day" ;;
-              "0 4 * * *"|"10 4 * * *") SLOT="noon" ;;
-              "0 10 * * *"|"10 10 * * *") SLOT="evening" ;;
-              "0 13 * * *"|"10 13 * * *") SLOT="bedtime" ;;
+              "50-59 3 * * *"|"0-10 4 * * *")
+                SLOT="noon"
+                NOT_BEFORE="12:00"
+                ;;
+              "50-59 9 * * *"|"0-10 10 * * *")
+                SLOT="evening"
+                NOT_BEFORE="18:00"
+                ;;
+              "50-59 12 * * *"|"0-10 13 * * *")
+                SLOT="bedtime"
+                NOT_BEFORE="21:00"
+                ;;
             esac
           fi
 
@@ -78,9 +92,13 @@ jobs:
           URL="$APP_BASE_URL/api/cron/reminder"
           if [ -n "$SLOT" ]; then
             URL="$URL?slot=$SLOT"
+            if [ -n "$NOT_BEFORE" ]; then
+              URL="$URL&notBefore=$NOT_BEFORE"
+            fi
           fi
 
           echo "Triggering slot: ${SLOT:-auto}"
+          echo "Not before: ${NOT_BEFORE:-none}"
           echo "Request URL: $URL"
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $CRON_SECRET" \
