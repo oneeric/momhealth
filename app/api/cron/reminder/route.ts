@@ -131,7 +131,7 @@ function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage 
   const openAppUrl = getOpenAppUrl(baseUrl);
   return {
     type: "flex",
-    altText: "今日療程提醒",
+    altText: "🐾 今日療程提醒",
     contents: {
       type: "bubble",
       header: {
@@ -142,7 +142,7 @@ function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage 
         contents: [
           {
             type: "text",
-            text: "今日療程提醒",
+            text: "🐾 今日療程提醒",
             color: "#ffffff",
             weight: "bold",
             size: "lg",
@@ -192,7 +192,7 @@ function buildMemoPreReminderMessage(
   const topRows = rows.slice(0, 5);
   return {
     type: "flex",
-    altText: `明日預約提醒（${topRows.length} 則）`,
+    altText: `備忘提前提醒（${topRows.length} 則）喵～`,
     contents: {
       type: "bubble",
       header: {
@@ -203,7 +203,7 @@ function buildMemoPreReminderMessage(
         contents: [
           {
             type: "text",
-            text: "⏰ 前一日預約提醒",
+            text: "⏰ 備忘錄提前提醒",
             color: "#ffffff",
             weight: "bold",
             size: "lg",
@@ -315,7 +315,7 @@ function buildMedsReminderMessage(
             color: "#14b8a6",
             action: {
               type: "postback",
-              label: "已服用",
+                    label: "已服用喵～",
               data: `check:${row.checkToken}`,
               displayText: `已標記 ${row.name} 服用`,
             },
@@ -331,7 +331,7 @@ function buildMedsReminderMessage(
 
   return {
     type: "flex",
-    altText: `${periodLabel} 用藥提醒`,
+    altText: `${periodLabel} 記得吃藥喵～`,
     contents: {
       type: "bubble",
       header: {
@@ -342,14 +342,14 @@ function buildMedsReminderMessage(
         contents: [
           {
             type: "text",
-            text: `💊 ${periodLabel} 用藥提醒`,
+            text: `🐾 ${periodLabel} 記得吃藥喵～`,
             color: "#ffffff",
             weight: "bold",
             size: "lg",
           },
           {
             type: "text",
-            text: "點擊下方按鈕即可同步打勾",
+            text: "點一下[已服用]，就能同步打勾喵～",
             color: "#ccfbf1",
             size: "sm",
           },

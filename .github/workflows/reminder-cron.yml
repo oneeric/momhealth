@@ -2,17 +2,24 @@ name: Medication Reminder Scheduler
 
 on:
   # Times are UTC; Taiwan is UTC+8.
-  # TW 07:00 => UTC 23:00 (previous day)
+  # Medication reminders:
+  # - Primary: original schedule time
+  # - Fallback: 10 minutes later
+  # TW 07:00 => UTC 23:00 (previous day), fallback TW 07:10 => UTC 23:10 (previous day)
   # TW 08:00 => UTC 00:00
-  # TW 12:00 => UTC 04:00
-  # TW 18:00 => UTC 10:00
-  # TW 21:00 => UTC 13:00
+  # TW 12:00 => UTC 04:00, fallback TW 12:10 => UTC 04:10
+  # TW 18:00 => UTC 10:00, fallback TW 18:10 => UTC 10:10
+  # TW 21:00 => UTC 13:00, fallback TW 21:10 => UTC 13:10
   schedule:
     - cron: "0 23 * * *"
+    - cron: "10 23 * * *"
     - cron: "0 0 * * *"
     - cron: "0 4 * * *"
+    - cron: "10 4 * * *"
     - cron: "0 10 * * *"
+    - cron: "10 10 * * *"
     - cron: "0 13 * * *"
+    - cron: "10 13 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -56,11 +63,11 @@ jobs:
           SLOT=""
           if [ "$EVENT_NAME" = "schedule" ]; then
             case "$EVENT_SCHEDULE" in
-              "0 23 * * *") SLOT="morning" ;;
+              "0 23 * * *"|"10 23 * * *") SLOT="morning" ;;
               "0 0 * * *") SLOT="day" ;;
-              "0 4 * * *") SLOT="noon" ;;
-              "0 10 * * *") SLOT="evening" ;;
-              "0 13 * * *") SLOT="bedtime" ;;
+              "0 4 * * *"|"10 4 * * *") SLOT="noon" ;;
+              "0 10 * * *"|"10 10 * * *") SLOT="evening" ;;
+              "0 13 * * *"|"10 13 * * *") SLOT="bedtime" ;;
             esac
           fi
 

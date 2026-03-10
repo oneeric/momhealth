@@ -186,7 +186,7 @@ function buildTodayFlexMessage(
 
   return {
     type: "flex",
-    altText: `今天 ${m}/${d} 療程提醒`,
+    altText: `今天 ${m}/${d} 療程提醒喵～`,
     contents: {
       type: "bubble",
       header: {
@@ -259,7 +259,7 @@ function buildTodayFlexMessage(
                 text:
                   totalCount > 0
                     ? checkedCount >= totalCount
-                      ? "今日用藥已全部完成"
+                      ? "今日用藥已全部完成喵～辛苦了！"
                       : `尚有 ${totalCount - checkedCount} 項待完成`
                     : "今日無需服藥項目",
                 size: "sm",
@@ -684,7 +684,7 @@ export async function POST(request: NextRequest) {
       await replyTextMessage(
         event.replyToken,
         changed
-          ? "已綁定提醒。每天 8:00 會收到今日階段提醒，用藥時段也會推播。"
+          ? "已綁定提醒喵～每天 8:00 會收到今日階段提醒，用藥時段也會推播喵～"
           : "目前已經綁定，不需要重複綁定。"
       );
       continue;
