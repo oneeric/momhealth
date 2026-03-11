@@ -276,58 +276,28 @@ function buildMedsReminderMessage(
   const openAppUrl = getOpenAppUrl(baseUrl);
   const medBlocks = rows.flatMap((row, idx) => {
     const previewUrl = getPillPreviewUrl(row.baseId, baseUrl);
-    const titleRow: Record<string, unknown> = {
-      type: "box",
-      layout: "horizontal",
-      spacing: "sm",
-      contents: [
-        ...(previewUrl
-          ? [
-              {
-                type: "icon",
-                url: previewUrl,
-                size: "md",
-              },
-            ]
-          : [
-              {
-                type: "text",
-                text: "🥣",
-                size: "md",
-                flex: 0,
-              },
-            ]),
-        {
-          type: "box",
-          layout: "vertical",
-          spacing: "xs",
-          contents: [
-            {
-              type: "text",
-              text: row.name,
-              wrap: true,
-              size: "md",
-              weight: "bold",
-              color: "#0f172a",
-            },
-            {
-              type: "text",
-              text: `劑量：${row.dose}`,
-              wrap: true,
-              size: "sm",
-              color: "#475569",
-            },
-          ],
-        },
-      ],
-    };
+    const symbol = previewUrl ? "💊" : "🥣";
     const block: Record<string, unknown>[] = [
       {
         type: "box",
         layout: "vertical",
         spacing: "sm",
         contents: [
-          titleRow,
+          {
+            type: "text",
+            text: `${symbol} ${row.name}`,
+            wrap: true,
+            size: "md",
+            weight: "bold",
+            color: "#0f172a",
+          },
+          {
+            type: "text",
+            text: `劑量：${row.dose}`,
+            wrap: true,
+            size: "sm",
+            color: "#475569",
+          },
           {
             type: "button",
             style: "primary",
@@ -335,7 +305,7 @@ function buildMedsReminderMessage(
             color: "#14b8a6",
             action: {
               type: "postback",
-                    label: "已服用喵～",
+              label: "已服用喵～",
               data: `check:${row.checkToken}`,
               displayText: `已標記 ${row.name} 服用`,
             },
@@ -486,8 +456,60 @@ export async function GET(request: NextRequest) {
           ([, config]) => config.hour === twHour
         )?.[0] as Exclude<ReminderSlot, "day"> | undefined) ?? null;
   const selectedSlot = slotFromQuery ?? slotByHour;
+  const runId = request.nextUrl.searchParams.get("runId") ?? "runtime";
+
+  // #region agent log
+  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "0dbab7",
+    },
+    body: JSON.stringify({
+      sessionId: "0dbab7",
+      runId,
+      hypothesisId: "H1",
+      location: "app/api/cron/reminder/route.ts:selectedSlot",
+      message: "cron_entry",
+      data: {
+        twHour,
+        twMinute: getTaiwanMinute(),
+        slotRaw,
+        slotFromQuery,
+        slotByHour,
+        selectedSlot,
+        notBeforeRaw,
+        targetsCount: targets.length,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   if (notBefore && selectedSlot && isBeforeTaiwanTime(notBefore)) {
+    // #region agent log
+    fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "0dbab7",
+      },
+      body: JSON.stringify({
+        sessionId: "0dbab7",
+        runId,
+        hypothesisId: "H2",
+        location: "app/api/cron/reminder/route.ts:too_early",
+        message: "skip_too_early",
+        data: {
+          selectedSlot,
+          notBeforeRaw,
+          twHour,
+          twMinute: getTaiwanMinute(),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     await logReminder("info", "skipped", selectedSlot, "too_early", {
       notBefore: notBeforeRaw ?? "",
       twHour,
@@ -597,6 +619,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "no_meds" });
   }
 
+  // #region agent log
+  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "0dbab7",
+    },
+    body: JSON.stringify({
+      sessionId: "0dbab7",
+      runId,
+      hypothesisId: "H3",
+      location: "app/api/cron/reminder/route.ts:meds_prepare",
+      message: "meds_prepare",
+      data: {
+        selectedSlot,
+        dedupeKey,
+        medsCount: meds.length,
+        currentDay,
+        targetCount: targets.length,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+
   const today = twDate;
   const reminderRows: {
     name: string;
@@ -625,6 +672,34 @@ export async function GET(request: NextRequest) {
     targets.map((t) => pushWithRetry(t, [flexMessage], 1))
   );
   const failed = results.filter((r) => !r.ok).length;
+
+  // #region agent log
+  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "0dbab7",
+    },
+    body: JSON.stringify({
+      sessionId: "0dbab7",
+      runId,
+      hypothesisId: "H4",
+      location: "app/api/cron/reminder/route.ts:meds_results",
+      message: "meds_send_results",
+      data: {
+        selectedSlot,
+        failed,
+        total: targets.length,
+        statuses: results.map((r) => ({
+          ok: r.ok,
+          status: r.status ?? null,
+          error: r.error ?? null,
+        })),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   if (failed < targets.length) {
     await kvMarkReminderSent(dedupeKey);
   }
@@ -644,6 +719,34 @@ export async function GET(request: NextRequest) {
     }
   );
   if (failed === targets.length) {
+    // #region agent log
+    fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "0dbab7",
+      },
+      body: JSON.stringify({
+        sessionId: "0dbab7",
+        runId,
+        hypothesisId: "H5",
+        location: "app/api/cron/reminder/route.ts:meds_all_failed",
+        message: "meds_all_failed",
+        data: {
+          selectedSlot,
+          dedupeKey,
+          firstFailure: results.find((r) => !r.ok)
+            ? {
+                status: results.find((r) => !r.ok)?.status ?? null,
+                error: results.find((r) => !r.ok)?.error ?? null,
+                responseText: results.find((r) => !r.ok)?.responseText ?? null,
+              }
+            : null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     return NextResponse.json(
       {
         ok: false,
