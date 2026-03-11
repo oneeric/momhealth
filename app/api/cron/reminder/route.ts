@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   kvGetSharedData,
   kvMarkReminderSent,
+  kvPushReminderLog,
   kvSetCheckToken,
   kvWasReminderSent,
 } from "@/lib/kv";
@@ -404,17 +405,34 @@ async function pushWithRetry(
   target: string,
   messages: LinePushMessage[],
   retryCount = 1
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; status?: number; responseText?: string; attempts: number }> {
   for (let i = 0; i <= retryCount; i++) {
     const result = await pushMessages(target, messages);
-    if (result.ok) return result;
+    if (result.ok) return { ...result, attempts: i + 1 };
     if (i < retryCount) {
       await new Promise((r) => setTimeout(r, 700));
     } else {
-      return result;
+      return { ...result, attempts: i + 1 };
     }
   }
-  return { ok: false, error: "push_failed" };
+  return { ok: false, error: "push_failed", attempts: retryCount + 1 };
+}
+
+async function logReminder(
+  level: "info" | "warn" | "error",
+  event: string,
+  slot: string | undefined,
+  detail: string,
+  meta?: Record<string, unknown>
+): Promise<void> {
+  await kvPushReminderLog({
+    ts: new Date().toISOString(),
+    level,
+    event,
+    slot,
+    detail,
+    meta,
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -422,11 +440,13 @@ export async function GET(request: NextRequest) {
   if (cronSecret) {
     const auth = request.headers.get("authorization");
     if (auth !== `Bearer ${cronSecret}`) {
+      await logReminder("warn", "unauthorized", undefined, "cron auth mismatch");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
 
   if (!isLineMessagingConfigured()) {
+    await logReminder("warn", "skipped", undefined, "line_not_configured");
     return NextResponse.json({ ok: true, skipped: "line_not_configured" });
   }
 
@@ -436,6 +456,7 @@ export async function GET(request: NextRequest) {
     ...(data?.lineGroupIds ?? []),
   ];
   if (targets.length === 0) {
+    await logReminder("warn", "skipped", undefined, "no_target");
     return NextResponse.json({ ok: true, skipped: "no_target" });
   }
 
@@ -467,6 +488,11 @@ export async function GET(request: NextRequest) {
   const selectedSlot = slotFromQuery ?? slotByHour;
 
   if (notBefore && selectedSlot && isBeforeTaiwanTime(notBefore)) {
+    await logReminder("info", "skipped", selectedSlot, "too_early", {
+      notBefore: notBeforeRaw ?? "",
+      twHour,
+      twMinute: getTaiwanMinute(),
+    });
     return NextResponse.json({
       ok: true,
       skipped: "too_early",
@@ -480,6 +506,7 @@ export async function GET(request: NextRequest) {
   if (selectedSlot === "day") {
     const dedupeKey = `day:${twDate}`;
     if (await kvWasReminderSent(dedupeKey)) {
+      await logReminder("info", "skipped", "day", "already_sent_day", { dedupeKey });
       return NextResponse.json({ ok: true, skipped: "already_sent_day" });
     }
 
@@ -519,6 +546,20 @@ export async function GET(request: NextRequest) {
     if (failed < targets.length) {
       await kvMarkReminderSent(dedupeKey);
     }
+    await logReminder(
+      failed === targets.length ? "error" : failed > 0 ? "warn" : "info",
+      "send_day",
+      "day",
+      failed === 0 ? "sent_ok" : "sent_partial_or_failed",
+      {
+        dedupeKey,
+        failed,
+        total: targets.length,
+        failures: results
+          .filter((r) => !r.ok)
+          .map((r) => ({ error: r.error, status: r.status, responseText: r.responseText })),
+      }
+    );
     return NextResponse.json({
       ok: true,
       type: "day",
@@ -530,12 +571,14 @@ export async function GET(request: NextRequest) {
 
   // 用藥提醒 7, 12, 18, 21
   if (!selectedSlot) {
+    await logReminder("info", "skipped", undefined, "no_match", { twHour });
     return NextResponse.json({ ok: true, skipped: "no_match", twHour });
   }
   const reminder = MEDS_SLOT_CONFIG[selectedSlot as Exclude<ReminderSlot, "day">];
 
   const dedupeKey = `meds:${twDate}:${selectedSlot}`;
   if (await kvWasReminderSent(dedupeKey)) {
+    await logReminder("info", "skipped", selectedSlot, "already_sent_meds", { dedupeKey });
     return NextResponse.json({ ok: true, skipped: "already_sent_meds" });
   }
 
@@ -547,6 +590,10 @@ export async function GET(request: NextRequest) {
 
   const meds = getMedsForPeriod(reminder.periodIndex, currentDay);
   if (meds.length === 0) {
+    await logReminder("info", "skipped", selectedSlot, "no_meds", {
+      periodIndex: reminder.periodIndex,
+      currentDay,
+    });
     return NextResponse.json({ ok: true, skipped: "no_meds" });
   }
 
@@ -581,9 +628,29 @@ export async function GET(request: NextRequest) {
   if (failed < targets.length) {
     await kvMarkReminderSent(dedupeKey);
   }
+  await logReminder(
+    failed === targets.length ? "error" : failed > 0 ? "warn" : "info",
+    "send_meds",
+    selectedSlot,
+    failed === 0 ? "sent_ok" : "sent_partial_or_failed",
+    {
+      dedupeKey,
+      medsCount: meds.length,
+      failed,
+      total: targets.length,
+      failures: results
+        .filter((r) => !r.ok)
+        .map((r) => ({ error: r.error, status: r.status, responseText: r.responseText })),
+    }
+  );
   if (failed === targets.length) {
     return NextResponse.json(
-      { ok: false, error: results.find((r) => !r.ok)?.error ?? "push_failed" },
+      {
+        ok: false,
+        error: results.find((r) => !r.ok)?.error ?? "push_failed",
+        status: results.find((r) => !r.ok)?.status,
+        responseText: results.find((r) => !r.ok)?.responseText,
+      },
       { status: 500 }
     );
   }

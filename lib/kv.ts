@@ -73,6 +73,17 @@ export async function kvSetSharedData(data: Partial<SharedData>): Promise<boolea
 
 const CHECK_PREFIX = "momhealth:check:";
 const REMINDER_SENT_PREFIX = "momhealth:reminder:sent:";
+const REMINDER_LOGS_KEY = "momhealth:reminder:logs";
+const REMINDER_LOGS_LIMIT = 300;
+
+export type ReminderLogItem = {
+  ts: string;
+  level: "info" | "warn" | "error";
+  event: string;
+  slot?: string;
+  detail?: string;
+  meta?: Record<string, unknown>;
+};
 
 export async function kvSetCheckToken(
   token: string,
@@ -118,4 +129,46 @@ export async function kvMarkReminderSent(
   if (!client) return;
   const key = `${REMINDER_SENT_PREFIX}${reminderKey}`;
   await client.set(key, "1", { ex: ttlSeconds });
+}
+
+export async function kvPushReminderLog(item: ReminderLogItem): Promise<void> {
+  const client = getRedis();
+  if (!client) return;
+  const raw = await client.get(REMINDER_LOGS_KEY);
+  const existing: ReminderLogItem[] = Array.isArray(raw)
+    ? (raw as ReminderLogItem[])
+    : typeof raw === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? (parsed as ReminderLogItem[]) : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+  const next = [{ ...item, ts: item.ts || new Date().toISOString() }, ...existing].slice(
+    0,
+    REMINDER_LOGS_LIMIT
+  );
+  await client.set(REMINDER_LOGS_KEY, JSON.stringify(next));
+}
+
+export async function kvGetReminderLogs(limit = 100): Promise<ReminderLogItem[]> {
+  const client = getRedis();
+  if (!client) return [];
+  const raw = await client.get(REMINDER_LOGS_KEY);
+  let logs: ReminderLogItem[] = [];
+  if (Array.isArray(raw)) {
+    logs = raw as ReminderLogItem[];
+  } else if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      logs = Array.isArray(parsed) ? (parsed as ReminderLogItem[]) : [];
+    } catch {
+      logs = [];
+    }
+  }
+  const safeLimit = Math.max(1, Math.min(500, limit));
+  return logs.slice(0, safeLimit);
 }

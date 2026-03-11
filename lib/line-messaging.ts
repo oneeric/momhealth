@@ -28,10 +28,17 @@ export type LinePushMessage =
 
 export type LineReplyMessage = LinePushMessage;
 
+export type LinePushResult = {
+  ok: boolean;
+  error?: string;
+  status?: number;
+  responseText?: string;
+};
+
 export async function pushMessages(
   to: string,
   messages: LinePushMessage[]
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<LinePushResult> {
   const token = getLineAccessToken();
   if (!token) return { ok: false, error: "LINE_CHANNEL_ACCESS_TOKEN missing" };
 
@@ -46,9 +53,14 @@ export async function pushMessages(
     });
     if (!res.ok) {
       const detail = await res.text();
-      return { ok: false, error: detail || res.statusText };
+      return {
+        ok: false,
+        status: res.status,
+        error: detail || res.statusText,
+        responseText: detail || res.statusText,
+      };
     }
-    return { ok: true };
+    return { ok: true, status: res.status };
   } catch (e) {
     return { ok: false, error: String(e) };
   }
@@ -57,7 +69,7 @@ export async function pushMessages(
 export async function pushTextMessage(
   to: string,
   text: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<LinePushResult> {
   return pushMessages(to, [{ type: "text", text }]);
 }
 
