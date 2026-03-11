@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import {
+  kvClearReminderSent,
   kvGetSharedData,
   kvMarkReminderSent,
   kvPushReminderLog,
@@ -457,59 +458,34 @@ export async function GET(request: NextRequest) {
         )?.[0] as Exclude<ReminderSlot, "day"> | undefined) ?? null;
   const selectedSlot = slotFromQuery ?? slotByHour;
   const runId = request.nextUrl.searchParams.get("runId") ?? "runtime";
+  const shouldReset = request.nextUrl.searchParams.get("reset") === "1";
 
-  // #region agent log
-  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "0dbab7",
-    },
-    body: JSON.stringify({
-      sessionId: "0dbab7",
+  if (shouldReset) {
+    const resetKeys = selectedSlot
+      ? [selectedSlot === "day" ? `day:${twDate}` : `meds:${twDate}:${selectedSlot}`]
+      : [
+          `day:${twDate}`,
+          `meds:${twDate}:morning`,
+          `meds:${twDate}:noon`,
+          `meds:${twDate}:evening`,
+          `meds:${twDate}:bedtime`,
+        ];
+    await Promise.all(resetKeys.map((key) => kvClearReminderSent(key)));
+    await logReminder("info", "reset", selectedSlot ?? "all", "dedupe_reset", {
+      resetKeys,
+      twDate,
       runId,
-      hypothesisId: "H1",
-      location: "app/api/cron/reminder/route.ts:selectedSlot",
-      message: "cron_entry",
-      data: {
-        twHour,
-        twMinute: getTaiwanMinute(),
-        slotRaw,
-        slotFromQuery,
-        slotByHour,
-        selectedSlot,
-        notBeforeRaw,
-        targetsCount: targets.length,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
+    });
+    return NextResponse.json({
+      ok: true,
+      type: "reset",
+      slot: selectedSlot ?? "all",
+      count: resetKeys.length,
+      keys: resetKeys,
+    });
+  }
 
   if (notBefore && selectedSlot && isBeforeTaiwanTime(notBefore)) {
-    // #region agent log
-    fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "0dbab7",
-      },
-      body: JSON.stringify({
-        sessionId: "0dbab7",
-        runId,
-        hypothesisId: "H2",
-        location: "app/api/cron/reminder/route.ts:too_early",
-        message: "skip_too_early",
-        data: {
-          selectedSlot,
-          notBeforeRaw,
-          twHour,
-          twMinute: getTaiwanMinute(),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     await logReminder("info", "skipped", selectedSlot, "too_early", {
       notBefore: notBeforeRaw ?? "",
       twHour,
@@ -619,31 +595,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "no_meds" });
   }
 
-  // #region agent log
-  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "0dbab7",
-    },
-    body: JSON.stringify({
-      sessionId: "0dbab7",
-      runId,
-      hypothesisId: "H3",
-      location: "app/api/cron/reminder/route.ts:meds_prepare",
-      message: "meds_prepare",
-      data: {
-        selectedSlot,
-        dedupeKey,
-        medsCount: meds.length,
-        currentDay,
-        targetCount: targets.length,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   const today = twDate;
   const reminderRows: {
     name: string;
@@ -673,33 +624,6 @@ export async function GET(request: NextRequest) {
   );
   const failed = results.filter((r) => !r.ok).length;
 
-  // #region agent log
-  fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "0dbab7",
-    },
-    body: JSON.stringify({
-      sessionId: "0dbab7",
-      runId,
-      hypothesisId: "H4",
-      location: "app/api/cron/reminder/route.ts:meds_results",
-      message: "meds_send_results",
-      data: {
-        selectedSlot,
-        failed,
-        total: targets.length,
-        statuses: results.map((r) => ({
-          ok: r.ok,
-          status: r.status ?? null,
-          error: r.error ?? null,
-        })),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   if (failed < targets.length) {
     await kvMarkReminderSent(dedupeKey);
   }
@@ -719,34 +643,6 @@ export async function GET(request: NextRequest) {
     }
   );
   if (failed === targets.length) {
-    // #region agent log
-    fetch("http://127.0.0.1:7851/ingest/bc759da1-5ba7-455d-8615-ba18f0b7c29c", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "0dbab7",
-      },
-      body: JSON.stringify({
-        sessionId: "0dbab7",
-        runId,
-        hypothesisId: "H5",
-        location: "app/api/cron/reminder/route.ts:meds_all_failed",
-        message: "meds_all_failed",
-        data: {
-          selectedSlot,
-          dedupeKey,
-          firstFailure: results.find((r) => !r.ok)
-            ? {
-                status: results.find((r) => !r.ok)?.status ?? null,
-                error: results.find((r) => !r.ok)?.error ?? null,
-                responseText: results.find((r) => !r.ok)?.responseText ?? null,
-              }
-            : null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return NextResponse.json(
       {
         ok: false,

@@ -131,6 +131,13 @@ export async function kvMarkReminderSent(
   await client.set(key, "1", { ex: ttlSeconds });
 }
 
+export async function kvClearReminderSent(reminderKey: string): Promise<void> {
+  const client = getRedis();
+  if (!client) return;
+  const key = `${REMINDER_SENT_PREFIX}${reminderKey}`;
+  await client.del(key);
+}
+
 export async function kvPushReminderLog(item: ReminderLogItem): Promise<void> {
   const client = getRedis();
   if (!client) return;

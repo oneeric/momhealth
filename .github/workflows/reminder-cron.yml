@@ -36,6 +36,11 @@ on:
           - noon
           - evening
           - bedtime
+      reset_dedupe:
+        description: "只清空今日 dedupe（不發送訊息）"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -51,6 +56,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_SCHEDULE: ${{ github.event.schedule }}
           INPUT_SLOT: ${{ inputs.slot }}
+          INPUT_RESET_DEDUPE: ${{ inputs.reset_dedupe }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           if [ -z "$APP_BASE_URL" ]; then
             echo "APP_BASE_URL is not configured"
@@ -100,8 +107,23 @@ jobs:
               URL="$URL&notBefore=$NOT_BEFORE"
             fi
           fi
+          if [ "$INPUT_RESET_DEDUPE" = "true" ]; then
+            if echo "$URL" | grep -q "?"; then
+              URL="$URL&reset=1"
+            else
+              URL="$URL?reset=1"
+            fi
+          fi
+          if echo "$URL" | grep -q "?"; then
+            URL="$URL&runId=$RUN_ID"
+          else
+            URL="$URL?runId=$RUN_ID"
+          fi
+          APP_BASE_HOST=$(echo "$APP_BASE_URL" | sed -E 's#https?://([^/]+)/?.*#\1#')
 
+          echo "App base host: $APP_BASE_HOST"
           echo "Triggering slot: ${SLOT:-auto}"
+          echo "Reset dedupe: ${INPUT_RESET_DEDUPE:-false}"
           echo "Not before: ${NOT_BEFORE:-none}"
           echo "Request URL: $URL"
           RESPONSE=$(curl --silent --show-error \
