@@ -7,14 +7,15 @@ on:
   # - API will block early sends before target HH:MM
   # - Once sent, dedupe prevents duplicates
   # TW 07:00 window => UTC 22:50-22:59 and 23:00-23:10 (previous day)
-  # TW 08:00 => UTC 00:00
+  # TW 08:00 window => UTC 23:50-23:59 (previous day) and 00:00-00:10
   # TW 12:00 window => UTC 03:50-03:59 and 04:00-04:10
   # TW 18:00 window => UTC 09:50-09:59 and 10:00-10:10
   # TW 21:00 window => UTC 12:50-12:59 and 13:00-13:10
   schedule:
     - cron: "50-59 22 * * *"
     - cron: "0-10 23 * * *"
-    - cron: "0 0 * * *"
+    - cron: "50-59 23 * * *"
+    - cron: "0-10 0 * * *"
     - cron: "50-59 3 * * *"
     - cron: "0-10 4 * * *"
     - cron: "50-59 9 * * *"
@@ -69,7 +70,10 @@ jobs:
                 SLOT="morning"
                 NOT_BEFORE="07:00"
                 ;;
-              "0 0 * * *") SLOT="day" ;;
+              "50-59 23 * * *"|"0-10 0 * * *")
+                SLOT="day"
+                NOT_BEFORE="08:00"
+                ;;
               "50-59 3 * * *"|"0-10 4 * * *")
                 SLOT="noon"
                 NOT_BEFORE="12:00"

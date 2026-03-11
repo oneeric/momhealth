@@ -466,6 +466,16 @@ export async function GET(request: NextRequest) {
         )?.[0] as Exclude<ReminderSlot, "day"> | undefined) ?? null;
   const selectedSlot = slotFromQuery ?? slotByHour;
 
+  if (notBefore && selectedSlot && isBeforeTaiwanTime(notBefore)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: "too_early",
+      slot: selectedSlot,
+      notBefore: notBeforeRaw,
+      nowTaiwan: `${String(twHour).padStart(2, "0")}:${String(getTaiwanMinute()).padStart(2, "0")}`,
+    });
+  }
+
   // 8am 每日階段提醒
   if (selectedSlot === "day") {
     const dedupeKey = `day:${twDate}`;
@@ -521,16 +531,6 @@ export async function GET(request: NextRequest) {
   // 用藥提醒 7, 12, 18, 21
   if (!selectedSlot) {
     return NextResponse.json({ ok: true, skipped: "no_match", twHour });
-  }
-
-  if (notBefore && isBeforeTaiwanTime(notBefore)) {
-    return NextResponse.json({
-      ok: true,
-      skipped: "too_early",
-      slot: selectedSlot,
-      notBefore: notBeforeRaw,
-      nowTaiwan: `${String(twHour).padStart(2, "0")}:${String(getTaiwanMinute()).padStart(2, "0")}`,
-    });
   }
   const reminder = MEDS_SLOT_CONFIG[selectedSlot as Exclude<ReminderSlot, "day">];
 
