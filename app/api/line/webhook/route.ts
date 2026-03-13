@@ -111,10 +111,9 @@ function getTodayMedIds(currentDay: number): string[] {
   return ids;
 }
 
-type MedTestRow = {
-  id: string;
-  name: string;
-  dose: string;
+type MedTestGroup = {
+  timing: string;
+  meds: { id: string; name: string; dose: string }[];
   checkToken: string;
 };
 
@@ -132,12 +131,22 @@ function selectTestPeriodLabel(text: string): { periodIndex: number; label: stri
   return { periodIndex: 3, label: "睡前" };
 }
 
-function getMedsForPeriod(periodIndex: number, currentDay: number): MedItem[] {
+function getMedsGroupsForPeriod(
+  periodIndex: number,
+  currentDay: number
+): { timing: string; meds: { id: string; name: string; dose: string }[] }[] {
   const period = scheduleData[periodIndex];
   if (!period) return [];
-  const out: MedItem[] = [];
+  const out: { timing: string; meds: { id: string; name: string; dose: string }[] }[] = [];
   period.slots.forEach((slot) => {
-    filterMedsByDay(slot.meds, currentDay).forEach((m) => out.push(m));
+    const meds = filterMedsByDay(slot.meds, currentDay).map((m) => ({
+      id: m.id,
+      name: m.name,
+      dose: m.dose,
+    }));
+    if (meds.length > 0) {
+      out.push({ timing: slot.timing, meds });
+    }
   });
   return out;
 }
@@ -512,10 +521,11 @@ function buildMemoCarouselMessage(
 
 function buildMedsTestFlexMessage(
   periodLabel: string,
-  rows: MedTestRow[],
+  groups: MedTestGroup[],
   origin: string
 ): LinePushMessage {
-  const contents = rows.flatMap((row, idx) => {
+  const contents = groups.flatMap((group, idx) => {
+    const medLines = group.meds.map((med) => `• ${med.name}（${med.dose}）`).join("\n");
     const block: Record<string, unknown>[] = [
       {
         type: "box",
@@ -524,17 +534,18 @@ function buildMedsTestFlexMessage(
         contents: [
           {
             type: "text",
-            text: row.name,
+            text: `🕒 ${group.timing}`,
             wrap: true,
             size: "md",
             weight: "bold",
-            color: "#0f172a",
+            color: "#0f766e",
           },
           {
             type: "text",
-            text: `劑量：${row.dose}`,
+            text: medLines,
+            wrap: true,
             size: "sm",
-            color: "#475569",
+            color: "#334155",
           },
           {
             type: "button",
@@ -543,15 +554,15 @@ function buildMedsTestFlexMessage(
             color: "#14b8a6",
             action: {
               type: "postback",
-              label: "已服用",
-              data: `check:${row.checkToken}`,
-              displayText: `已標記 ${row.name} 服用`,
+              label: `已服用（${group.timing}）`,
+              data: `check:${group.checkToken}`,
+              displayText: `已標記 ${group.timing} 服用`,
             },
           },
         ],
       },
     ];
-    if (idx < rows.length - 1) block.push({ type: "separator", margin: "md" });
+    if (idx < groups.length - 1) block.push({ type: "separator", margin: "md" });
     return block;
   });
 
@@ -746,7 +757,8 @@ export async function POST(request: NextRequest) {
       const progress = config ? getCurrentProgress(config) : null;
       const currentDay = progress?.day ?? 1;
       const selected = selectTestPeriodLabel(text);
-      const meds = getMedsForPeriod(selected.periodIndex, currentDay);
+      const groups = getMedsGroupsForPeriod(selected.periodIndex, currentDay);
+      const meds = groups.flatMap((group) => group.meds);
       if (meds.length === 0) {
         await replyTextMessage(
           event.replyToken,
@@ -755,18 +767,21 @@ export async function POST(request: NextRequest) {
         continue;
       }
       const today = formatTaiwanDate(new Date());
-      const rows: MedTestRow[] = [];
-      for (const med of meds) {
+      const testGroups: MedTestGroup[] = [];
+      for (const group of groups) {
         const token = randomBytes(16).toString("hex");
-        await kvSetCheckToken(token, med.id, today);
-        rows.push({
-          id: med.id,
-          name: med.name,
-          dose: med.dose,
+        await kvSetCheckToken(
+          token,
+          group.meds.map((med) => med.id),
+          today
+        );
+        testGroups.push({
+          timing: group.timing,
+          meds: group.meds,
           checkToken: token,
         });
       }
-      const flex = buildMedsTestFlexMessage(selected.label, rows, origin);
+      const flex = buildMedsTestFlexMessage(selected.label, testGroups, origin);
       await replyMessages(event.replyToken, [flex]);
       continue;
     }
