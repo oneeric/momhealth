@@ -45,14 +45,6 @@ export const scheduleData: SchedulePeriod[] = [
             purpose: "保護胃部 (請整粒吞服)",
             pillCss: "w-6 h-4 rounded-full bg-yellow-100 border border-yellow-300",
           },
-          {
-            id: "emetrol_m",
-            baseId: "emetrol",
-            name: "EmetroL (癒吐寧)",
-            dose: "1 粒",
-            purpose: "預防噁心嘔吐",
-            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
-          },
         ],
       },
       {
@@ -72,6 +64,14 @@ export const scheduleData: SchedulePeriod[] = [
       {
         timing: "早餐後",
         meds: [
+          {
+            id: "emetrol_m",
+            baseId: "emetrol",
+            name: "EmetroL (癒吐寧)",
+            dose: "1 粒",
+            purpose: "預防噁心嘔吐",
+            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
+          },
           {
             id: "ts1_m",
             baseId: "ts1",
@@ -127,19 +127,6 @@ export const scheduleData: SchedulePeriod[] = [
     headerColor: "text-sky-900",
     slots: [
       {
-        timing: "午餐前 (空腹)",
-        meds: [
-          {
-            id: "emetrol_n",
-            baseId: "emetrol",
-            name: "EmetroL (癒吐寧)",
-            dose: "1 粒",
-            purpose: "預防噁心嘔吐",
-            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
-          },
-        ],
-      },
-      {
         timing: "午餐中 (與食物一起吃)",
         meds: [
           {
@@ -150,6 +137,19 @@ export const scheduleData: SchedulePeriod[] = [
             purpose: "幫助消化",
             pillCss:
               "w-7 h-3 rounded-full bg-gradient-to-r from-red-500 to-red-100 border border-red-200",
+          },
+        ],
+      },
+      {
+        timing: "午餐後",
+        meds: [
+          {
+            id: "emetrol_n",
+            baseId: "emetrol",
+            name: "EmetroL (癒吐寧)",
+            dose: "1 粒",
+            purpose: "預防噁心嘔吐",
+            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
           },
         ],
       },
@@ -174,19 +174,6 @@ export const scheduleData: SchedulePeriod[] = [
     headerColor: "text-indigo-900",
     slots: [
       {
-        timing: "晚餐前 (空腹)",
-        meds: [
-          {
-            id: "emetrol_e",
-            baseId: "emetrol",
-            name: "EmetroL (癒吐寧)",
-            dose: "1 粒",
-            purpose: "預防噁心嘔吐",
-            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
-          },
-        ],
-      },
-      {
         timing: "晚餐中 (與食物一起吃)",
         meds: [
           {
@@ -203,6 +190,14 @@ export const scheduleData: SchedulePeriod[] = [
       {
         timing: "晚餐後",
         meds: [
+          {
+            id: "emetrol_e",
+            baseId: "emetrol",
+            name: "EmetroL (癒吐寧)",
+            dose: "1 粒",
+            purpose: "預防噁心嘔吐",
+            pillCss: "w-5 h-5 rounded-full bg-white border border-gray-300",
+          },
           {
             id: "ts1_e",
             baseId: "ts1",

@@ -87,18 +87,19 @@ export type ReminderLogItem = {
 
 export async function kvSetCheckToken(
   token: string,
-  medId: string,
+  medIds: string | string[],
   date: string
 ): Promise<void> {
   const client = getRedis();
   if (!client) return;
   const key = `${CHECK_PREFIX}${token}`;
-  await client.set(key, JSON.stringify({ medId, date }), { ex: 86400 }); // 24h
+  const normalized = Array.isArray(medIds) ? medIds : [medIds];
+  await client.set(key, JSON.stringify({ medIds: normalized, date }), { ex: 86400 }); // 24h
 }
 
 export async function kvGetAndDeleteCheckToken(
   token: string
-): Promise<{ medId: string; date: string } | null> {
+): Promise<{ medIds: string[]; date: string } | null> {
   const client = getRedis();
   if (!client) return null;
   const key = `${CHECK_PREFIX}${token}`;
@@ -107,7 +108,17 @@ export async function kvGetAndDeleteCheckToken(
   await client.del(key);
   try {
     const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return { medId: parsed.medId, date: parsed.date };
+    if (Array.isArray(parsed?.medIds) && typeof parsed?.date === "string") {
+      return {
+        medIds: parsed.medIds.filter((id: unknown): id is string => typeof id === "string"),
+        date: parsed.date,
+      };
+    }
+    // Backward compatibility for old token payload.
+    if (typeof parsed?.medId === "string" && typeof parsed?.date === "string") {
+      return { medIds: [parsed.medId], date: parsed.date };
+    }
+    return null;
   } catch {
     return null;
   }

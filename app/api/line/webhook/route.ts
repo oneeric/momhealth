@@ -612,7 +612,10 @@ async function markMedicationCheckedByToken(token: string): Promise<boolean> {
   const data = await kvGetSharedData();
   const medRecords = data?.medRecords ?? {};
   const dateRecords = medRecords[payload.date] ?? {};
-  const updated = { ...dateRecords, [payload.medId]: true };
+  const updated = { ...dateRecords };
+  for (const medId of payload.medIds) {
+    updated[medId] = true;
+  }
   await kvSetSharedData({
     medRecords: {
       ...medRecords,

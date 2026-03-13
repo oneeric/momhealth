@@ -18,21 +18,47 @@ import {
   type LinePushMessage,
 } from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
-import { getMedsForPeriod } from "@/lib/medication-schedule";
+import { scheduleData, type MedItem } from "@/lib/medication-data";
 import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
 
-type ReminderSlot = "day" | "morning" | "noon" | "evening" | "bedtime";
+type ReminderSlot =
+  | "day"
+  | "morning"
+  | "noon"
+  | "evening"
+  | "bedtime"
+  | "morning_tcm"
+  | "noon_tcm"
+  | "evening_tcm";
 
 const MEDS_SLOT_CONFIG: Record<
   Exclude<ReminderSlot, "day">,
-  { hour: number; periodIndex: number; label: string }
+  { hour: number; periodIndex: number; label: string; onlyTcm?: boolean }
 > = {
   morning: { hour: 7, periodIndex: 0, label: "早上" },
   noon: { hour: 12, periodIndex: 1, label: "中午" },
   evening: { hour: 18, periodIndex: 2, label: "晚上" },
   bedtime: { hour: 21, periodIndex: 3, label: "睡前" },
+  morning_tcm: {
+    hour: 8,
+    periodIndex: 0,
+    label: "早上中藥（餐後一小時）",
+    onlyTcm: true,
+  },
+  noon_tcm: {
+    hour: 13,
+    periodIndex: 1,
+    label: "中午中藥（餐後一小時）",
+    onlyTcm: true,
+  },
+  evening_tcm: {
+    hour: 19,
+    periodIndex: 2,
+    label: "晚上中藥（餐後一小時）",
+    onlyTcm: true,
+  },
 };
 
 function parseReminderSlot(raw: string | null): ReminderSlot | null {
@@ -43,11 +69,58 @@ function parseReminderSlot(raw: string | null): ReminderSlot | null {
     normalized === "morning" ||
     normalized === "noon" ||
     normalized === "evening" ||
-    normalized === "bedtime"
+    normalized === "bedtime" ||
+    normalized === "morning_tcm" ||
+    normalized === "noon_tcm" ||
+    normalized === "evening_tcm"
   ) {
     return normalized;
   }
   return null;
+}
+
+function filterMedsForSlot(
+  meds: { name: string; id: string; baseId: string; dose: string }[],
+  slot: Exclude<ReminderSlot, "day">
+): { name: string; id: string; baseId: string; dose: string }[] {
+  const onlyTcm = !!MEDS_SLOT_CONFIG[slot].onlyTcm;
+  return meds.filter((m) => (onlyTcm ? m.baseId === "tcm" : m.baseId !== "tcm"));
+}
+
+type ReminderMedRow = { name: string; id: string; baseId: string; dose: string };
+type ReminderTimingGroup = {
+  timing: string;
+  meds: ReminderMedRow[];
+};
+
+function filterMedsByDay(meds: MedItem[], currentDay: number): MedItem[] {
+  if (currentDay >= 1 && currentDay <= 7) return meds;
+  return meds.filter((m) => m.baseId === "tcm");
+}
+
+function getTimingGroupsForPeriod(
+  periodIndex: number,
+  currentDay: number,
+  slot: Exclude<ReminderSlot, "day">
+): ReminderTimingGroup[] {
+  const period = scheduleData[periodIndex];
+  if (!period) return [];
+  const out: ReminderTimingGroup[] = [];
+  for (const timingSlot of period.slots) {
+    const meds = filterMedsForSlot(
+      filterMedsByDay(timingSlot.meds, currentDay).map((m) => ({
+        name: m.name,
+        id: m.id,
+        baseId: m.baseId,
+        dose: m.dose,
+      })),
+      slot
+    );
+    if (meds.length > 0) {
+      out.push({ timing: timingSlot.timing, meds });
+    }
+  }
+  return out;
 }
 
 function getTaiwanHour(): number {
@@ -271,13 +344,20 @@ function buildMemoPreReminderMessage(
 
 function buildMedsReminderMessage(
   periodLabel: string,
-  rows: { name: string; dose: string; baseId: string; checkToken: string }[],
+  groups: {
+    timing: string;
+    meds: { name: string; dose: string; baseId: string }[];
+    checkToken: string;
+  }[],
   baseUrl: string
 ): LinePushMessage {
   const openAppUrl = getOpenAppUrl(baseUrl);
-  const medBlocks = rows.flatMap((row, idx) => {
-    const previewUrl = getPillPreviewUrl(row.baseId, baseUrl);
-    const symbol = previewUrl ? "💊" : "🥣";
+  const medBlocks = groups.flatMap((group, idx) => {
+    const medLines = group.meds.map((med) => {
+      const previewUrl = getPillPreviewUrl(med.baseId, baseUrl);
+      const symbol = previewUrl ? "💊" : "🥣";
+      return `${symbol} ${med.name}（${med.dose}）`;
+    });
     const block: Record<string, unknown>[] = [
       {
         type: "box",
@@ -286,18 +366,18 @@ function buildMedsReminderMessage(
         contents: [
           {
             type: "text",
-            text: `${symbol} ${row.name}`,
+            text: `🕒 ${group.timing}`,
             wrap: true,
             size: "md",
             weight: "bold",
-            color: "#0f172a",
+            color: "#0f766e",
           },
           {
             type: "text",
-            text: `劑量：${row.dose}`,
+            text: medLines.join("\n"),
             wrap: true,
             size: "sm",
-            color: "#475569",
+            color: "#334155",
           },
           {
             type: "button",
@@ -306,15 +386,15 @@ function buildMedsReminderMessage(
             color: "#14b8a6",
             action: {
               type: "postback",
-              label: "已服用喵～",
-              data: `check:${row.checkToken}`,
-              displayText: `已標記 ${row.name} 服用`,
+              label: `已服用（${group.timing}）`,
+              data: `check:${group.checkToken}`,
+              displayText: `已標記 ${group.timing} 服用`,
             },
           },
         ],
       },
     ];
-    if (idx < rows.length - 1) {
+    if (idx < groups.length - 1) {
       block.push({ type: "separator", margin: "md" });
     }
     return block;
@@ -438,7 +518,20 @@ export async function GET(request: NextRequest) {
   const slotRaw = request.nextUrl.searchParams.get("slot");
   if (slotRaw && !slotFromQuery) {
     return NextResponse.json(
-      { ok: false, error: "invalid_slot", allowed: ["day", "morning", "noon", "evening", "bedtime"] },
+      {
+        ok: false,
+        error: "invalid_slot",
+        allowed: [
+          "day",
+          "morning",
+          "noon",
+          "evening",
+          "bedtime",
+          "morning_tcm",
+          "noon_tcm",
+          "evening_tcm",
+        ],
+      },
       { status: 400 }
     );
   }
@@ -469,6 +562,9 @@ export async function GET(request: NextRequest) {
           `meds:${twDate}:noon`,
           `meds:${twDate}:evening`,
           `meds:${twDate}:bedtime`,
+          `meds:${twDate}:morning_tcm`,
+          `meds:${twDate}:noon_tcm`,
+          `meds:${twDate}:evening_tcm`,
         ];
     await Promise.all(resetKeys.map((key) => kvClearReminderSent(key)));
     await logReminder("info", "reset", selectedSlot ?? "all", "dedupe_reset", {
@@ -586,7 +682,12 @@ export async function GET(request: NextRequest) {
   const progress = config ? getCurrentProgress(config) : null;
   const currentDay = progress?.day ?? 1;
 
-  const meds = getMedsForPeriod(reminder.periodIndex, currentDay);
+  const timingGroups = getTimingGroupsForPeriod(
+    reminder.periodIndex,
+    currentDay,
+    selectedSlot as Exclude<ReminderSlot, "day">
+  );
+  const meds = timingGroups.flatMap((g) => g.meds);
   if (meds.length === 0) {
     await logReminder("info", "skipped", selectedSlot, "no_meds", {
       periodIndex: reminder.periodIndex,
@@ -596,27 +697,33 @@ export async function GET(request: NextRequest) {
   }
 
   const today = twDate;
-  const reminderRows: {
-    name: string;
-    dose: string;
-    baseId: string;
+  const reminderGroups: {
+    timing: string;
+    meds: { name: string; dose: string; baseId: string }[];
     checkToken: string;
   }[] = [];
 
-  for (const med of meds) {
+  for (const group of timingGroups) {
     const checkToken = randomBytes(16).toString("hex");
-    await kvSetCheckToken(checkToken, med.id, today);
-    reminderRows.push({
-      name: med.name,
-      dose: med.dose,
-      baseId: med.baseId,
+    await kvSetCheckToken(
+      checkToken,
+      group.meds.map((med) => med.id),
+      today
+    );
+    reminderGroups.push({
+      timing: group.timing,
+      meds: group.meds.map((med) => ({
+        name: med.name,
+        dose: med.dose,
+        baseId: med.baseId,
+      })),
       checkToken,
     });
   }
 
   const flexMessage = buildMedsReminderMessage(
     reminder.label,
-    reminderRows,
+    reminderGroups,
     baseUrl
   );
   const results = await Promise.all(

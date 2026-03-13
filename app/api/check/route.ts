@@ -18,7 +18,10 @@ export async function GET(request: NextRequest) {
   const data = await kvGetSharedData();
   const medRecords = data?.medRecords ?? {};
   const todayRecords = medRecords[payload.date] ?? {};
-  const updated = { ...todayRecords, [payload.medId]: true };
+  const updated = { ...todayRecords };
+  for (const medId of payload.medIds) {
+    updated[medId] = true;
+  }
 
   await kvSetSharedData({
     medRecords: { ...medRecords, [payload.date]: updated },
