@@ -1,5 +1,5 @@
 /**
- * 排程提醒 API（由 GitHub Actions 觸發）
+ * 排程提醒 API（由 QStash / GitHub Actions 備援觸發）
  * 每日 8 點階段提醒 + 用藥時間提醒
  * 台灣時間：8:00, 7:00, 12:00, 18:00, 21:00 (UTC: 0:00, 23:00, 4:00, 10:00, 13:00)
  */
@@ -19,6 +19,7 @@ import {
 } from "@/lib/line-messaging";
 import { getCurrentProgress, migrateLegacyConfig } from "@/lib/treatment";
 import { scheduleData, type MedItem } from "@/lib/medication-data";
+import { isQstashVerificationConfigured, verifyQstashSignature } from "@/lib/qstash";
 import { randomBytes } from "crypto";
 
 export const dynamic = "force-dynamic";
@@ -145,6 +146,14 @@ function isBeforeTaiwanTime(target: { hour: number; minute: number }): boolean {
   if (currentHour < target.hour) return true;
   if (currentHour > target.hour) return false;
   return currentMinute < target.minute;
+}
+
+function isAfterTaiwanTime(target: { hour: number; minute: number }): boolean {
+  const currentHour = getTaiwanHour();
+  const currentMinute = getTaiwanMinute();
+  if (currentHour > target.hour) return true;
+  if (currentHour < target.hour) return false;
+  return currentMinute > target.minute;
 }
 
 function formatTaiwanDate(date: Date): string {
@@ -488,12 +497,26 @@ async function logReminder(
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${cronSecret}`) {
-      await logReminder("warn", "unauthorized", undefined, "cron auth mismatch");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const auth = request.headers.get("authorization");
+  const qstashSignature = request.headers.get("upstash-signature");
+  let authorized = false;
+
+  if (cronSecret && auth === `Bearer ${cronSecret}`) {
+    authorized = true;
+  }
+
+  if (!authorized && qstashSignature && isQstashVerificationConfigured()) {
+    const body = await request.text();
+    authorized = await verifyQstashSignature(qstashSignature, body);
+  }
+
+  if (!authorized) {
+    await logReminder("warn", "unauthorized", undefined, "cron auth mismatch", {
+      hasBearer: !!auth,
+      hasQstashSignature: !!qstashSignature,
+      qstashVerifyEnabled: isQstashVerificationConfigured(),
+    });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   if (!isLineMessagingConfigured()) {
@@ -515,6 +538,8 @@ export async function GET(request: NextRequest) {
   const slotFromQuery = parseReminderSlot(request.nextUrl.searchParams.get("slot"));
   const notBeforeRaw = request.nextUrl.searchParams.get("notBefore");
   const notBefore = parseHourMinute(notBeforeRaw);
+  const notAfterRaw = request.nextUrl.searchParams.get("notAfter");
+  const notAfter = parseHourMinute(notAfterRaw);
   const slotRaw = request.nextUrl.searchParams.get("slot");
   if (slotRaw && !slotFromQuery) {
     return NextResponse.json(
@@ -538,6 +563,12 @@ export async function GET(request: NextRequest) {
   if (notBeforeRaw && !notBefore) {
     return NextResponse.json(
       { ok: false, error: "invalid_not_before", expected: "HH:MM" },
+      { status: 400 }
+    );
+  }
+  if (notAfterRaw && !notAfter) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_not_after", expected: "HH:MM" },
       { status: 400 }
     );
   }
@@ -592,6 +623,21 @@ export async function GET(request: NextRequest) {
       skipped: "too_early",
       slot: selectedSlot,
       notBefore: notBeforeRaw,
+      nowTaiwan: `${String(twHour).padStart(2, "0")}:${String(getTaiwanMinute()).padStart(2, "0")}`,
+    });
+  }
+
+  if (notAfter && selectedSlot && isAfterTaiwanTime(notAfter)) {
+    await logReminder("info", "skipped", selectedSlot, "too_late", {
+      notAfter: notAfterRaw ?? "",
+      twHour,
+      twMinute: getTaiwanMinute(),
+    });
+    return NextResponse.json({
+      ok: true,
+      skipped: "too_late",
+      slot: selectedSlot,
+      notAfter: notAfterRaw,
       nowTaiwan: `${String(twHour).padStart(2, "0")}:${String(getTaiwanMinute()).padStart(2, "0")}`,
     });
   }

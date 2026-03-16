@@ -1,33 +1,6 @@
 name: Medication Reminder Scheduler
 
 on:
-  # Times are UTC; Taiwan is UTC+8.
-  # Medication reminders (retry mode):
-  # - Retry every minute from 10 minutes before target time
-  # - API will block early sends before target HH:MM
-  # - Once sent, dedupe prevents duplicates
-  # TW 07:00 window => UTC 22:50-22:59 and 23:00-23:10 (previous day)
-  # TW 08:00 window => UTC 23:50-23:59 (previous day) and 00:00-00:10
-  # TW 12:00 window => UTC 03:50-03:59 and 04:00-04:10
-  # TW 13:00 (中藥) window => UTC 04:50-04:59 and 05:00-05:10
-  # TW 18:00 window => UTC 09:50-09:59 and 10:00-10:10
-  # TW 19:00 (中藥) window => UTC 10:50-10:59 and 11:00-11:10
-  # TW 21:00 window => UTC 12:50-12:59 and 13:00-13:10
-  schedule:
-    - cron: "50-59 22 * * *"
-    - cron: "0-10 23 * * *"
-    - cron: "50-59 23 * * *"
-    - cron: "0-10 0 * * *"
-    - cron: "50-59 3 * * *"
-    - cron: "0-10 4 * * *"
-    - cron: "50-59 4 * * *"
-    - cron: "0-10 5 * * *"
-    - cron: "50-59 9 * * *"
-    - cron: "0-10 10 * * *"
-    - cron: "50-59 10 * * *"
-    - cron: "0-10 11 * * *"
-    - cron: "50-59 12 * * *"
-    - cron: "0-10 13 * * *"
   workflow_dispatch:
     inputs:
       slot:
@@ -62,8 +35,6 @@ jobs:
         env:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
           INPUT_SLOT: ${{ inputs.slot }}
           INPUT_RESET_DEDUPE: ${{ inputs.reset_dedupe }}
           RUN_ID: ${{ github.run_id }}
@@ -78,87 +49,43 @@ jobs:
             exit 1
           fi
 
-          SLOT=""
-          NOT_BEFORE=""
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            case "$EVENT_SCHEDULE" in
-              "50-59 22 * * *"|"0-10 23 * * *")
-                SLOT="morning"
-                NOT_BEFORE="07:00"
-                ;;
-              "50-59 23 * * *"|"0-10 0 * * *")
-                SLOT="day,morning_tcm"
-                NOT_BEFORE="08:00"
-                ;;
-              "50-59 3 * * *"|"0-10 4 * * *")
-                SLOT="noon"
-                NOT_BEFORE="12:00"
-                ;;
-              "50-59 4 * * *"|"0-10 5 * * *")
-                SLOT="noon_tcm"
-                NOT_BEFORE="13:00"
-                ;;
-              "50-59 9 * * *"|"0-10 10 * * *")
-                SLOT="evening"
-                NOT_BEFORE="18:00"
-                ;;
-              "50-59 10 * * *"|"0-10 11 * * *")
-                SLOT="evening_tcm"
-                NOT_BEFORE="19:00"
-                ;;
-              "50-59 12 * * *"|"0-10 13 * * *")
-                SLOT="bedtime"
-                NOT_BEFORE="21:00"
-                ;;
-            esac
+          SLOT="$INPUT_SLOT"
+          if [ -z "$SLOT" ]; then
+            SLOT="auto"
           fi
 
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$INPUT_SLOT" ] && [ "$INPUT_SLOT" != "auto" ]; then
-            SLOT="$INPUT_SLOT"
+          URL="$APP_BASE_URL/api/cron/reminder"
+          if [ "$SLOT" != "auto" ]; then
+            URL="$URL?slot=$SLOT"
+          fi
+          if [ "$INPUT_RESET_DEDUPE" = "true" ]; then
+            if echo "$URL" | grep -q "?"; then
+              URL="$URL&reset=1"
+            else
+              URL="$URL?reset=1"
+            fi
+          fi
+          if echo "$URL" | grep -q "?"; then
+            URL="$URL&runId=$RUN_ID"
+          else
+            URL="$URL?runId=$RUN_ID"
           fi
 
           APP_BASE_HOST=$(echo "$APP_BASE_URL" | sed -E 's#https?://([^/]+)/?.*#\1#')
 
           echo "App base host: $APP_BASE_HOST"
-          echo "Triggering slot: ${SLOT:-auto}"
+          echo "Triggering slot: $SLOT"
           echo "Reset dedupe: ${INPUT_RESET_DEDUPE:-false}"
-          echo "Not before: ${NOT_BEFORE:-none}"
-          SLOT_LIST="${SLOT:-auto}"
-          SLOT_LIST="${SLOT_LIST//,/ }"
-          HAS_ERROR=0
-          for ONE_SLOT in $SLOT_LIST; do
-            URL="$APP_BASE_URL/api/cron/reminder"
-            if [ -n "$ONE_SLOT" ] && [ "$ONE_SLOT" != "auto" ]; then
-              URL="$URL?slot=$ONE_SLOT"
-              if [ -n "$NOT_BEFORE" ]; then
-                URL="$URL&notBefore=$NOT_BEFORE"
-              fi
-            fi
-            if [ "$INPUT_RESET_DEDUPE" = "true" ]; then
-              if echo "$URL" | grep -q "?"; then
-                URL="$URL&reset=1"
-              else
-                URL="$URL?reset=1"
-              fi
-            fi
-            if echo "$URL" | grep -q "?"; then
-              URL="$URL&runId=$RUN_ID"
-            else
-              URL="$URL?runId=$RUN_ID"
-            fi
-            echo "Request URL [$ONE_SLOT]: $URL"
-            RESPONSE=$(curl --silent --show-error \
-              --write-out "\n%{http_code}" \
-              -H "Authorization: Bearer $CRON_SECRET" \
-              "$URL")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-            echo "HTTP_CODE [$ONE_SLOT]: $HTTP_CODE"
-            echo "RESPONSE_BODY [$ONE_SLOT]: $BODY"
-            if [ "$HTTP_CODE" -ge 400 ]; then
-              HAS_ERROR=1
-            fi
-          done
-          if [ "$HAS_ERROR" -eq 1 ]; then
+          echo "Request URL: $URL"
+
+          RESPONSE=$(curl --silent --show-error \
+            --write-out "\n%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$URL")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP_CODE: $HTTP_CODE"
+          echo "RESPONSE_BODY: $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
             exit 22
           fi
