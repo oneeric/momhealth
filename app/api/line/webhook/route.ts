@@ -164,22 +164,26 @@ function buildTodayFlexMessage(
   const m = now.getMonth() + 1;
   const d = now.getDate();
 
-  let phase = "尚未設定療程";
+  let phaseLabel = "尚未設定療程";
+  let stageLabel = "待設定";
   let title = "請先到 App 設定打針日";
-  let content = "設定完成後，這裡會顯示今日療程狀態。";
+  let content = "設定完成後，這裡會顯示每日療程與用藥提醒。";
 
   if (progress?.status === "in_cycle" && progress.todayInfo) {
-    phase = `${progress.todayInfo.phaseLabel}（第 ${progress.todayInfo.cycle} 次 · Day ${progress.todayInfo.day}）`;
+    phaseLabel = progress.todayInfo.phaseLabel;
+    stageLabel = `第 ${progress.todayInfo.cycle} 次療程 · 第 ${progress.todayInfo.day} 天`;
     title = progress.todayInfo.title;
     content = progress.todayInfo.content;
   } else if (progress?.status === "waiting_next") {
-    phase = "等待下次回診";
+    phaseLabel = "等待下次回診";
+    stageLabel = `第 ${progress.cycle} 次療程已結束`;
     title = "本次療程已完成";
-    content = "目前為等待下一次回診階段。";
+    content = "目前為等待下一次回診階段，請持續留意備忘錄與醫師安排。";
   } else if (progress?.status === "completed") {
-    phase = "療程完成";
-    title = "療程已全部完成";
-    content = "辛苦了，請持續追蹤日常照護。";
+    phaseLabel = "療程完成";
+    stageLabel = "全部療程已完成";
+    title = "辛苦了，療程已全部完成";
+    content = "請依照醫囑持續追蹤日常照護，必要時安排回診。";
   }
 
   const currentDay = progress?.day ?? 1;
@@ -203,17 +207,25 @@ function buildTodayFlexMessage(
         layout: "vertical",
         backgroundColor: "#14b8a6",
         paddingAll: "12px",
+        spacing: "xs",
         contents: [
           {
             type: "text",
-            text: `📅 今天 ${m}/${d}`,
+            text: "🐾 今日療程提醒",
             color: "#ffffff",
             weight: "bold",
-            size: "xl",
+            size: "md",
           },
           {
             type: "text",
-            text: phase,
+            text: `${m} 月 ${d} 日`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "3xl",
+          },
+          {
+            type: "text",
+            text: phaseLabel,
             color: "#ccfbf1",
             size: "sm",
             wrap: true,
@@ -224,14 +236,59 @@ function buildTodayFlexMessage(
         type: "box",
         layout: "vertical",
         spacing: "sm",
+        paddingAll: "14px",
         contents: [
+          {
+            type: "box",
+            layout: "baseline",
+            spacing: "sm",
+            contents: [
+              {
+                type: "text",
+                text: "狀態",
+                size: "xs",
+                color: "#0f766e",
+                weight: "bold",
+                flex: 0,
+              },
+              {
+                type: "text",
+                text: stageLabel,
+                size: "sm",
+                color: "#0f172a",
+                weight: "bold",
+                wrap: true,
+              },
+            ],
+          },
+          {
+            type: "separator",
+            color: "#d1d5db",
+            margin: "sm",
+          },
+          {
+            type: "text",
+            text: "療程資訊",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+            margin: "sm",
+          },
           {
             type: "text",
             text: title,
             weight: "bold",
-            size: "lg",
+            size: "xl",
             color: "#0f172a",
             wrap: true,
+          },
+          {
+            type: "text",
+            text: "今日重點",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+            margin: "md",
           },
           {
             type: "text",
@@ -251,7 +308,7 @@ function buildTodayFlexMessage(
             contents: [
               {
                 type: "text",
-                text: "今日完成率",
+                text: "服藥進度",
                 size: "sm",
                 color: "#0f766e",
                 weight: "bold",
@@ -311,6 +368,7 @@ function buildTodayFlexMessage(
       footer: {
         type: "box",
         layout: "vertical",
+        paddingAll: "12px",
         contents: [
           {
             type: "button",
@@ -586,9 +644,16 @@ function buildMedsTestFlexMessage(
           },
           {
             type: "text",
-            text: "此訊息為手動測試，不影響定時排程。",
+            text: "點一下[已服用]，就能同步打勾喵～",
             color: "#ccfbf1",
             size: "sm",
+          },
+          {
+            type: "text",
+            text: "此訊息為手動測試，不影響定時排程。",
+            color: "#99f6e4",
+            size: "xs",
+            wrap: true,
           },
         ],
       },

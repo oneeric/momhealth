@@ -230,7 +230,19 @@ function getOpenMemosUrl(baseUrl: string): string {
   return `${baseUrl}/memos`;
 }
 
-function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage {
+type DayReminderCardPayload = {
+  month: string;
+  day: string;
+  phaseLabel: string;
+  stageLabel: string;
+  title: string;
+  content: string;
+};
+
+function buildDayReminderMessage(
+  payload: DayReminderCardPayload,
+  baseUrl: string
+): LinePushMessage {
   const openAppUrl = getOpenAppUrl(baseUrl);
   return {
     type: "flex",
@@ -242,33 +254,102 @@ function buildDayReminderMessage(msg: string, baseUrl: string): LinePushMessage 
         layout: "vertical",
         backgroundColor: "#14b8a6",
         paddingAll: "12px",
+        spacing: "xs",
         contents: [
           {
             type: "text",
             text: "🐾 今日療程提醒",
             color: "#ffffff",
             weight: "bold",
-            size: "lg",
+            size: "md",
+          },
+          {
+            type: "text",
+            text: `${payload.month} 月 ${payload.day} 日`,
+            color: "#ffffff",
+            weight: "bold",
+            size: "3xl",
+          },
+          {
+            type: "text",
+            text: payload.phaseLabel,
+            color: "#ccfbf1",
+            size: "sm",
+            wrap: true,
           },
         ],
       },
       body: {
         type: "box",
         layout: "vertical",
-        spacing: "md",
+        spacing: "sm",
+        paddingAll: "14px",
         contents: [
           {
+            type: "box",
+            layout: "baseline",
+            spacing: "sm",
+            contents: [
+              {
+                type: "text",
+                text: "狀態",
+                size: "xs",
+                color: "#0f766e",
+                weight: "bold",
+                flex: 0,
+              },
+              {
+                type: "text",
+                text: payload.stageLabel,
+                size: "sm",
+                color: "#0f172a",
+                weight: "bold",
+                wrap: true,
+              },
+            ],
+          },
+          {
+            type: "separator",
+            color: "#d1d5db",
+            margin: "sm",
+          },
+          {
             type: "text",
-            text: msg,
+            text: "療程資訊",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+            margin: "sm",
+          },
+          {
+            type: "text",
+            text: payload.title,
+            wrap: true,
+            size: "xl",
+            color: "#0f172a",
+            weight: "bold",
+          },
+          {
+            type: "text",
+            text: "今日重點",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+            margin: "md",
+          },
+          {
+            type: "text",
+            text: payload.content,
             wrap: true,
             size: "md",
-            color: "#0f172a",
+            color: "#334155",
           },
         ],
       },
       footer: {
         type: "box",
         layout: "vertical",
+        paddingAll: "12px",
         contents: [
           {
             type: "button",
@@ -658,22 +739,46 @@ export async function GET(request: NextRequest) {
     const twDateParts = twDate.split("-");
     const m = twDateParts[1];
     const d = twDateParts[2];
-    let msg = `📅 今天是 ${m} 月 ${d} 日\n\n`;
+    let payload: DayReminderCardPayload = {
+      month: m,
+      day: d,
+      phaseLabel: "尚未設定療程",
+      stageLabel: "待設定",
+      title: "請先到 App 設定打針日",
+      content: "設定完成後，這裡會顯示每日療程與用藥提醒。",
+    };
 
     if (progress?.status === "in_cycle" && progress.todayInfo) {
       const info = progress.todayInfo;
-      msg += `第 ${info.cycle} 次療程 · 第 ${info.day} 天\n`;
-      msg += `階段：${info.phaseLabel}\n\n`;
-      msg += `${info.title}\n${info.content}`;
+      payload = {
+        month: m,
+        day: d,
+        phaseLabel: `${info.phaseLabel}`,
+        stageLabel: `第 ${info.cycle} 次療程 · 第 ${info.day} 天`,
+        title: info.title,
+        content: info.content,
+      };
     } else if (progress?.status === "waiting_next") {
-      msg += `第 ${progress.cycle} 次療程已結束，等待下一次回診`;
+      payload = {
+        month: m,
+        day: d,
+        phaseLabel: "等待下次回診",
+        stageLabel: `第 ${progress.cycle} 次療程已結束`,
+        title: "本次療程已完成",
+        content: "目前為等待下一次回診階段，請持續留意備忘錄與醫師安排。",
+      };
     } else if (progress?.status === "completed") {
-      msg += `療程已全部完成 🎉`;
-    } else {
-      msg += `請在 App 設定療程打針日以開始追蹤`;
+      payload = {
+        month: m,
+        day: d,
+        phaseLabel: "療程完成",
+        stageLabel: "全部療程已完成",
+        title: "辛苦了，療程已全部完成",
+        content: "請依照醫囑持續追蹤日常照護，必要時安排回診。",
+      };
     }
 
-    const flexMessage = buildDayReminderMessage(msg, baseUrl);
+    const flexMessage = buildDayReminderMessage(payload, baseUrl);
     const tomorrowMemos = getTomorrowMemos(data, twDate);
     const messages: LinePushMessage[] =
       tomorrowMemos.length > 0
