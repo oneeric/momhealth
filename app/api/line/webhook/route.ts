@@ -403,6 +403,17 @@ function getScheduledMemos(
     .sort((a, b) => (a.scheduledDate ?? "").localeCompare(b.scheduledDate ?? ""));
 }
 
+function formatMemoDateLabel(raw?: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "未設定日期";
+  const date = new Date(`${value}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}/${day} (${weekdays[date.getDay()]})`;
+}
+
 function buildMemoCarouselMessage(
   data: Awaited<ReturnType<typeof kvGetSharedData>>,
   origin: string
@@ -438,12 +449,20 @@ function buildMemoCarouselMessage(
         body: {
           type: "box",
           layout: "vertical",
+          spacing: "sm",
           contents: [
             {
               type: "text",
-              text: "目前沒有備忘錄內容。",
-              wrap: true,
+              text: "目前沒有備忘錄內容",
+              weight: "bold",
               size: "md",
+              color: "#0f172a",
+            },
+            {
+              type: "text",
+              text: "可在 App 新增預約或追蹤提醒項目。",
+              wrap: true,
+              size: "sm",
               color: "#334155",
             },
           ],
@@ -471,13 +490,14 @@ function buildMemoCarouselMessage(
   const bubbles = items.map((memo, idx) => {
     const title = memo.title?.trim() || "未命名";
     const content = memo.content?.trim() || "（無內容）";
-    const preview = content.length > 140 ? `${content.slice(0, 140)}...` : content;
+    const preview = content.length > 120 ? `${content.slice(0, 120)}...` : content;
     const updatedAt = memo.updatedAt
       ? new Date(memo.updatedAt).toLocaleString("zh-TW", {
           hour12: false,
         })
       : "";
     const scheduledDate = memo.scheduledDate ?? "";
+    const dateLabel = formatMemoDateLabel(scheduledDate);
 
     return {
       type: "bubble",
@@ -486,10 +506,11 @@ function buildMemoCarouselMessage(
         layout: "vertical",
         backgroundColor: "#14b8a6",
         paddingAll: "10px",
+        spacing: "xs",
         contents: [
           {
             type: "text",
-            text: scheduledDate ? `📅 ${scheduledDate}` : "📅 未設定日期",
+            text: `📅 ${dateLabel}`,
             color: "#ffffff",
             weight: "bold",
             size: "xl",
@@ -508,14 +529,35 @@ function buildMemoCarouselMessage(
         type: "box",
         layout: "vertical",
         spacing: "sm",
+        paddingAll: "12px",
         contents: [
+          {
+            type: "text",
+            text: "標題",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+          },
           {
             type: "text",
             text: title,
             wrap: true,
             weight: "bold",
-            size: "md",
+            size: "lg",
             color: "#0f172a",
+          },
+          {
+            type: "separator",
+            color: "#d1d5db",
+            margin: "sm",
+          },
+          {
+            type: "text",
+            text: "內容摘要",
+            size: "xs",
+            color: "#0f766e",
+            weight: "bold",
+            margin: "sm",
           },
           {
             type: "text",
@@ -524,17 +566,14 @@ function buildMemoCarouselMessage(
             size: "sm",
             color: "#334155",
           },
-          ...(scheduledDate
-            ? [
-                {
-                  type: "text",
-                  text: `預約日：${scheduledDate}`,
-                  size: "sm",
-                  color: "#0f766e",
-                  wrap: true,
-                },
-              ]
-            : []),
+          {
+            type: "text",
+            text: `預約日：${scheduledDate || "未設定"}`,
+            size: "sm",
+            color: "#0f766e",
+            wrap: true,
+            margin: "md",
+          },
           ...(updatedAt
             ? [
                 {

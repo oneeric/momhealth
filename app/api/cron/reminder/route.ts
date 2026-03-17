@@ -374,6 +374,60 @@ function buildMemoPreReminderMessage(
 ): LinePushMessage {
   const tomorrow = shiftDate(twDate, 1);
   const topRows = rows.slice(0, 5);
+  const contents = topRows.flatMap((memo, idx) => {
+    const title = memo.title?.trim() || "未命名";
+    const content = memo.content?.trim() || "";
+    const preview = content.length > 80 ? `${content.slice(0, 80)}...` : content;
+    const block: Record<string, unknown>[] = [
+      {
+        type: "box",
+        layout: "vertical",
+        spacing: "xs",
+        backgroundColor: "#fff7ed",
+        cornerRadius: "8px",
+        paddingAll: "10px",
+        contents: [
+          {
+            type: "text",
+            text: `預約 ${idx + 1}`,
+            size: "xs",
+            color: "#b45309",
+            weight: "bold",
+          },
+          {
+            type: "text",
+            text: title,
+            wrap: true,
+            size: "md",
+            color: "#1f2937",
+            weight: "bold",
+          },
+          ...(preview
+            ? [
+                {
+                  type: "text",
+                  text: preview,
+                  wrap: true,
+                  size: "sm",
+                  color: "#475569",
+                },
+              ]
+            : []),
+          {
+            type: "text",
+            text: `日期：${memo.scheduledDate || tomorrow}`,
+            wrap: true,
+            size: "sm",
+            color: "#92400e",
+            weight: "bold",
+          },
+        ],
+      },
+    ];
+    if (idx < topRows.length - 1) block.push({ type: "separator", margin: "md" });
+    return block;
+  });
+
   return {
     type: "flex",
     altText: `備忘提前提醒（${topRows.length} 則）喵～`,
@@ -404,13 +458,7 @@ function buildMemoPreReminderMessage(
         type: "box",
         layout: "vertical",
         spacing: "sm",
-        contents: topRows.map((memo) => ({
-          type: "text",
-          text: `• ${memo.title || "未命名"}${memo.content ? `\n${memo.content}` : ""}`,
-          wrap: true,
-          size: "md",
-          color: "#1f2937",
-        })),
+        contents,
       },
       footer: {
         type: "box",
