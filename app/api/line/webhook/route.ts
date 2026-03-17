@@ -406,12 +406,12 @@ function getScheduledMemos(
 function formatMemoDateLabel(raw?: string): string {
   const value = (raw ?? "").trim();
   if (!value) return "未設定日期";
-  const date = new Date(`${value}T00:00:00+08:00`);
-  if (Number.isNaN(date.getTime())) return value;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return value;
+  const [, y, m, d] = match;
+  const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
   const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${month}/${day} (${weekdays[date.getDay()]})`;
+  return `${m}/${d} (${weekdays[date.getUTCDay()]})`;
 }
 
 function getMemoSortKey(raw?: string): string {
@@ -494,7 +494,8 @@ function buildMemoCarouselMessage(
     };
   }
 
-  const bubbles = items.map((memo, idx) => {
+  const notifyDateLabel = formatMemoDateLabel(formatTaiwanDate(new Date()));
+  const bubbles = items.map((memo) => {
     const title = memo.title?.trim() || "未命名";
     const content = memo.content?.trim() || "（無內容）";
     const preview = content.length > 120 ? `${content.slice(0, 120)}...` : content;
@@ -571,14 +572,15 @@ function buildMemoCarouselMessage(
                 type: "text",
                 text: preview,
                 wrap: true,
-                size: "md",
+                size: "lg",
                 color: "#334155",
+                lineSpacing: "8px",
               },
             ],
           },
           {
             type: "text",
-            text: `預約日：${scheduledDate || "未設定"}`,
+            text: `通知日：${notifyDateLabel}`,
             size: "sm",
             color: "#0f766e",
             wrap: true,
