@@ -523,13 +523,6 @@ function buildMemoCarouselMessage(
             size: "3xl",
             wrap: true,
           },
-          {
-            type: "text",
-            text: `備忘 ${idx + 1}`,
-            color: "#ccfbf1",
-            weight: "bold",
-            size: "sm",
-          },
         ],
       },
       body: {
@@ -567,11 +560,21 @@ function buildMemoCarouselMessage(
             margin: "sm",
           },
           {
-            type: "text",
-            text: preview,
-            wrap: true,
-            size: "sm",
-            color: "#334155",
+            type: "box",
+            layout: "vertical",
+            backgroundColor: "#f1f5f9",
+            cornerRadius: "8px",
+            paddingAll: "10px",
+            margin: "sm",
+            contents: [
+              {
+                type: "text",
+                text: preview,
+                wrap: true,
+                size: "md",
+                color: "#334155",
+              },
+            ],
           },
           {
             type: "text",
