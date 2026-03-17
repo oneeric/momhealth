@@ -520,7 +520,7 @@ function buildMemoCarouselMessage(
             text: `📅 ${dateLabel}`,
             color: "#ffffff",
             weight: "bold",
-            size: "2xl",
+            size: "3xl",
             wrap: true,
           },
           {
