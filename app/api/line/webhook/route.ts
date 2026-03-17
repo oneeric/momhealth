@@ -414,14 +414,21 @@ function formatMemoDateLabel(raw?: string): string {
   return `${month}/${day} (${weekdays[date.getDay()]})`;
 }
 
+function getMemoSortKey(raw?: string): string {
+  const value = (raw ?? "").trim();
+  return value || "9999-99-99";
+}
+
 function buildMemoCarouselMessage(
   data: Awaited<ReturnType<typeof kvGetSharedData>>,
   origin: string
 ): LinePushMessage {
   const memos = (Array.isArray(data?.memos) ? data?.memos : []) as MemoItem[];
-  const sorted = [...memos].sort((a, b) =>
-    (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
-  );
+  const sorted = [...memos].sort((a, b) => {
+    const byDate = getMemoSortKey(a.scheduledDate).localeCompare(getMemoSortKey(b.scheduledDate));
+    if (byDate !== 0) return byDate;
+    return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
+  });
   const items = sorted.slice(0, 10);
   const openUrl = getOpenMemosUrl(origin);
 
@@ -513,7 +520,7 @@ function buildMemoCarouselMessage(
             text: `📅 ${dateLabel}`,
             color: "#ffffff",
             weight: "bold",
-            size: "xl",
+            size: "2xl",
             wrap: true,
           },
           {
